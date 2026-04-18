@@ -1,15 +1,13 @@
 """M2: walk downloaded datasets, apply taxonomy_map.json, emit labels.csv + rejects.csv.
 
-Assumed on-disk layout produced by scripts/download_datasets.sh:
+Assumed on-disk layout:
 
-    data/raw/hairstyle30k/<class_name>/*.jpg
-    data/raw/k_hairstyle/images/<class_name>/*.jpg          (post-unpack)
-    data/raw/celebamask_hq/CelebA-HQ-img/*.jpg              (no style labels)
+    data/raw/hairstyle40/image/<class_name>/*.jpg
+    data/raw/scraped/<style_id>/*.jpg
 
-Hairstyle30k and K-Hairstyle give us class-folder structure; we map folder
-names to style_ids via taxonomy/taxonomy_map.json. CelebAMask-HQ has no style
-labels, so we don't pull images from it here — it's only used in M3 for the
-hair-parser auxiliary.
+FaceSketches-HairStyle40 gives us class-folder structure; we map folder names
+to style_ids via taxonomy/taxonomy_map.json. Scraped images are already grouped
+by final style_id and bypass the mapping step.
 
 Output labels.csv columns:
     image_path,style_id,source,source_class,view,quality,occlusion,notes
@@ -30,6 +28,14 @@ from src.config import (
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+LABEL_FIELDNAMES = [
+    "image_path", "style_id", "source", "source_class",
+    "view", "quality", "occlusion", "notes",
+]
+REJECT_FIELDNAMES = [
+    "image_path", "source", "source_class", "reject_reason",
+    "view", "quality", "occlusion", "notes",
+]
 
 
 def _load_json(path: Path) -> dict:
@@ -120,26 +126,14 @@ def ingest() -> tuple[int, int]:
 
     LABELS_CSV.parent.mkdir(parents=True, exist_ok=True)
     with open(LABELS_CSV, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=LABEL_FIELDNAMES)
+        writer.writeheader()
         if labels_rows:
-            writer = csv.DictWriter(
-                f,
-                fieldnames=[
-                    "image_path", "style_id", "source", "source_class",
-                    "view", "quality", "occlusion", "notes",
-                ],
-            )
-            writer.writeheader()
             writer.writerows(labels_rows)
     with open(REJECTS_CSV, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=REJECT_FIELDNAMES)
+        writer.writeheader()
         if rejects_rows:
-            writer = csv.DictWriter(
-                f,
-                fieldnames=[
-                    "image_path", "source", "source_class", "reject_reason",
-                    "view", "quality", "occlusion", "notes",
-                ],
-            )
-            writer.writeheader()
             writer.writerows(rejects_rows)
 
     return len(labels_rows), len(rejects_rows)

@@ -32,10 +32,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-If you're on Python 3.14, `mediapipe` may fail to install or import (its
-`solutions` API was removed). The v1 pipeline **does not run face detection**,
-so this is harmless — `src/preprocess/face_detect.py` is not invoked by any
-training or inference path.
+The shipped pipeline installs without `mediapipe`; optional cropping in
+`src/preprocess/hair_crop.py` uses OpenCV only.
 
 ## Run the trained model (inference only)
 
@@ -147,6 +145,15 @@ Reads every source folder, applies `taxonomy/taxonomy_map.json` (folder name →
 `style_id`), writes `data/labels.csv` and `data/rejects.csv`. Scraped images
 use the folder name directly as the `style_id` (no mapping needed).
 
+Optional preprocessing:
+
+```bash
+python -m src.preprocess.hair_crop
+```
+
+This replaces `image_path` in `data/labels.csv` with the generated portrait
+crops and appends crop failures to `data/rejects.csv`.
+
 ### 4. Source-disjoint splits
 
 ```bash
@@ -244,7 +251,7 @@ haircut-classifier/
 │   └── splits/               source-disjoint train/val/test CSVs
 ├── src/
 │   ├── config.py             paths + TrainConfig + ServingConfig
-│   ├── preprocess/           face_detect (skipped), hair_crop, ingest
+│   ├── preprocess/           face_detect, hair_crop, ingest
 │   ├── data/                 dataset, sampler, transforms
 │   ├── models/               backbone (OpenCLIP), classifier, losses
 │   ├── train/                zero_shot, linear_probe, fine_tune

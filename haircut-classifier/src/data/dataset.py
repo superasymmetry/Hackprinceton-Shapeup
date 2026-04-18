@@ -16,6 +16,7 @@ from torch.utils.data import Dataset
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from src.config import PROMPTS_JSON, SPLITS_DIR, TAXONOMY_JSON
+from src.data.transforms import training_wrap
 from src.inference.predict import build_prompts_for_style
 
 
@@ -41,6 +42,7 @@ class HaircutDataset(Dataset):
         split: str,
         preprocess: Callable,
         sample_prompt: bool = True,
+        augment: bool = False,
     ):
         csv_path = SPLITS_DIR / f"{split}.csv"
         if not csv_path.exists():
@@ -52,6 +54,8 @@ class HaircutDataset(Dataset):
             self.rows = list(csv.DictReader(f))
         self.preprocess = preprocess
         self.sample_prompt = sample_prompt
+        self.augment = augment
+        self._augmented_preprocess: dict[str, Callable] = {}
 
         self.style_ids = load_style_ids()
         self.sid_to_idx = {sid: i for i, sid in enumerate(self.style_ids)}
@@ -70,7 +74,14 @@ class HaircutDataset(Dataset):
         except Exception:
             # Corrupt image: fall back to the next row rather than crash.
             return self.__getitem__((i + 1) % len(self.rows))
-        x = self.preprocess(img)
+        preprocess = self.preprocess
+        if self.augment:
+            style_id = row["style_id"]
+            preprocess = self._augmented_preprocess.setdefault(
+                style_id,
+                training_wrap(self.preprocess, style_id),
+            )
+        x = preprocess(img)
         y = self.sid_to_idx[row["style_id"]]
         prompt = (
             random.choice(self.prompt_bank[row["style_id"]])

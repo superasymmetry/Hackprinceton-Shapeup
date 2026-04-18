@@ -18,14 +18,27 @@ export interface ARFaceMesh {
   capturedAt: string;
 }
 
-export interface FaceScanData {
-  // Raw MediaPipe landmarks at scan completion (468 points, normalized 0–1)
+export interface FaceFrame {
   landmarks: Array<{ x: number; y: number; z: number }>;
-  // Base64 snapshot of the camera frame (used as face texture)
   imageDataUrl: string;
-  // Image dimensions the landmarks were captured at
+  maskDataUrl?: string;
   imageWidth: number;
   imageHeight: number;
+  yawAbs?: number;
+  frontFrameIndex?: number;
+}
+
+export interface FaceScanData {
+  // Raw MediaPipe landmarks at scan completion (468 points, normalized 0–1)
+  landmarks: FaceFrame['landmarks'];
+  // Base64 snapshot of the camera frame (used as face texture)
+  imageDataUrl: FaceFrame['imageDataUrl'];
+  maskDataUrl?: FaceFrame['maskDataUrl'];
+  // Image dimensions the landmarks were captured at
+  imageWidth: FaceFrame['imageWidth'];
+  imageHeight: FaceFrame['imageHeight'];
+  // Additional frontal frames captured during scan for classifier ensembling
+  classifierFrames?: FaceFrame[];
   // Optional high-fidelity TrueDepth mesh — preferred over landmarks when present
   arMesh?: ARFaceMesh;
 }
