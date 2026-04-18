@@ -12,6 +12,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { HairParams, UserHeadProfile } from '@/types';
 import { useLLM } from '@/hooks/useLLM';
+import { useElevenLabsAgent } from '@/hooks/useElevenLabsAgent';
 
 interface EditPanelProps {
   profile: UserHeadProfile;
@@ -24,6 +25,9 @@ export default function EditPanel({ profile, onParamsChange }: EditPanelProps) {
   const [historyIndex, setHistoryIndex] = useState(0);
 
   const { editHair, loading, error } = useLLM(profile);
+  const [agentActive, setAgentActive] = useState(false);
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const agent = useElevenLabsAgent((imageUrl) => setGeneratedImage(imageUrl));
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const summaryRef = useRef<HTMLTextAreaElement>(null);
@@ -97,6 +101,10 @@ export default function EditPanel({ profile, onParamsChange }: EditPanelProps) {
     <div className="flex flex-col gap-6 p-4 bg-gray-900 text-white h-full overflow-y-auto">
       <h2 className="text-lg font-semibold">Edit Hair</h2>
 
+      {generatedImage && (
+        <img src={generatedImage} alt="Generated hairstyle" className="rounded w-full" />
+      )}
+
       {/* LLM Prompt */}
       <form onSubmit={handlePromptSubmit} className="flex flex-col gap-2">
         <label className="text-sm text-gray-400">Describe the style</label>
@@ -106,13 +114,25 @@ export default function EditPanel({ profile, onParamsChange }: EditPanelProps) {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
-        <button
-          type="submit"
-          disabled={loading}
-          className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 rounded px-4 py-2 text-sm font-medium transition-colors"
-        >
-          {loading ? 'Styling…' : 'Apply Style'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 rounded px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {loading ? 'Styling…' : 'Apply Style'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (agentActive) { agent.stop(); setAgentActive(false); }
+              else             { agent.start(); setAgentActive(true); }
+            }}
+            className={`rounded px-3 py-2 text-sm font-medium transition-colors ${agentActive ? 'bg-red-600 hover:bg-red-500' : 'bg-gray-700 hover:bg-gray-600'}`}
+          >
+            {agentActive ? '⏹ Stop' : '🎤 Voice'}
+          </button>
+        </div>
         {error && <p className="text-red-400 text-xs">{error}</p>}
       </form>
 
