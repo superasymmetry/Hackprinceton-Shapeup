@@ -53,6 +53,11 @@ def _get_flame():
         from flame_pytorch import FLAME, get_config
         config = get_config()
         config.batch_size = 1
+        # Override relative paths to absolute so the server works from any cwd
+        model_dir = Path(FLAME_DIR) / "model"
+        config.flame_model_path                = str(model_dir / "generic_model.pkl")
+        config.static_landmark_embedding_path  = str(model_dir / "flame_static_embedding.pkl")
+        config.dynamic_landmark_embedding_path = str(model_dir / "flame_dynamic_embedding.npy")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         _flame = FLAME(config).to(device)
         _flame.eval()
