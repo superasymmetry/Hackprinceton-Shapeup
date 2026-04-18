@@ -4,9 +4,11 @@ import { HairParams, UserHeadProfile } from '@/types';
 
 import EditPanel from '@/components/EditPanel';
 import FaceLiftPanel from '@/components/FaceLiftPanel';
+import HairClassifierPanel from '@/components/HairClassifierPanel';
 import ScanSetup from '@/components/ScanSetup';
 import dynamic from 'next/dynamic';
 import { mockUserHeadProfile } from '@/data/mockProfile';
+import { useHairClassifier } from '@/hooks/useHairClassifier';
 import { useFaceLift } from '@/hooks/useFaceLift';
 import { useHairStep } from '@/hooks/useHairStep';
 import { useSmirk } from '@/hooks/useSmirk';
@@ -26,6 +28,7 @@ export default function Home() {
   const facelift  = useFaceLift(profile.faceScanData?.imageDataUrl);
   const hairstep  = useHairStep(profile.faceScanData?.imageDataUrl);
   const smirk     = useSmirk(profile.faceScanData?.imageDataUrl);
+  const classifier = useHairClassifier(profile.faceScanData);
 
   const handleSetupComplete = (newProfile: UserHeadProfile) => {
     setProfile(newProfile);
@@ -51,8 +54,16 @@ export default function Home() {
           params={params}
           colorRGB={profile.currentStyle.colorRGB}
           profile={profile}
-          flameData={smirk.result ?? undefined}
+          flameData={
+            smirk.result
+              ? {
+                  vertices: smirk.result.vertices_canonical,
+                  faces: smirk.result.faces,
+                }
+              : undefined
+          }
         />
+        <HairClassifierPanel state={classifier} />
         <div className="absolute top-3 left-3 text-xs text-gray-500 pointer-events-none">
           ShapeUp · drag to rotate
         </div>
