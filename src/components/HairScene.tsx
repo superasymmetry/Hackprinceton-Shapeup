@@ -355,7 +355,7 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
 
   // FaceLift job state for ethansample_bald test
   const [ethanJobId, setEthanJobId]       = useState<string | null>(null);
-  const [ethanJobStatus, setEthanJobStatus] = useState<'idle' | 'submitting' | 'processing' | 'done' | 'error'>('idle');
+  const [ethanJobStatus, setEthanJobStatus] = useState<'idle' | 'submitting' | 'processing' | 'done' | 'smirk-only' | 'error'>('idle');
   const [ethanSplatSrc, setEthanSplatSrc] = useState<string | null>(null);
   // Gaussian-derived head bounds used for crown-to-crown hair alignment.
   const [gaussianHeadBounds, setGaussianHeadBounds] = useState<GaussianHeadBounds | null>(null);
@@ -365,6 +365,7 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
   // result drives FLAME alignment for both the splat and Bruno hair.
   const loadEthanBald = useCallback(async () => {
     if (ethanJobStatus === 'submitting' || ethanJobStatus === 'processing') return;
+    setGaussianHeadBounds(null);
     setEthanJobStatus('submitting');
 
     let dataUrl: string;
@@ -389,8 +390,12 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
       body: JSON.stringify({ imageDataUrl: dataUrl }),
     })
       .then(r => r.json())
-      .then(data => { if (!data.error) setLocalFlameData({ vertices: data.vertices_canonical, faces: data.faces }); })
-      .catch(() => {});
+      .then(data => {
+        if (data.error) { console.error('[SMIRK] error:', data.error); return; }
+        console.log('[SMIRK] vertices:', data.vertices_canonical?.length, 'faces:', data.faces?.length);
+        setLocalFlameData({ vertices: data.vertices_canonical, faces: data.faces });
+      })
+      .catch(e => console.error('[SMIRK] fetch failed:', e));
 
     const faceliftP = fetch('/api/facelift', {
       method: 'POST',
@@ -399,14 +404,21 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
     })
       .then(r => r.json())
       .then(data => {
+        console.log('[FaceLift] submit response:', data);
         if (data.jobId) {
           setEthanJobId(data.jobId);
           setEthanJobStatus('processing');
         } else {
-          setEthanJobStatus('error');
+          console.warn('[FaceLift] no jobId, falling back to SMIRK-only mode');
+          // If SMIRK worked, show hair aligned to static splat (partial success).
+          // localFlameData update is async so we check via the setter form.
+          setLocalFlameData(prev => {
+            setEthanJobStatus(prev ? 'smirk-only' : 'error');
+            return prev;
+          });
         }
       })
-      .catch(() => setEthanJobStatus('error'));
+      .catch(e => { console.error('[FaceLift] fetch failed:', e); setEthanJobStatus('error'); });
 
     await Promise.all([smirkP, faceliftP]);
   }, [ethanJobStatus]);
@@ -418,16 +430,23 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
     const timer = setInterval(async () => {
       try {
         const res  = await fetch(`/api/facelift?jobId=${ethanJobId}`);
-        const data = await res.json() as { status: string };
+        if (!res.ok) {
+          console.warn(`[FaceLift] poll HTTP ${res.status} — keeping polling`);
+          return; // transient server error, retry next tick
+        }
+        const data = await res.json() as { status: string; error?: string };
+        console.log('[FaceLift] poll:', data.status, data.error ?? '');
         if (data.status === 'success') {
           clearInterval(timer);
           setEthanSplatSrc(`/api/facelift/${ethanJobId}/gaussians.ply`);
           setEthanJobStatus('done');
         } else if (data.status === 'error') {
           clearInterval(timer);
+          console.error('[FaceLift] job failed:', data.error);
           setEthanJobStatus('error');
         }
-      } catch { /* transient — keep polling */ }
+        // 'queued' / 'running' → keep polling
+      } catch (e) { console.warn('[FaceLift] poll transient error:', e); }
     }, 10_000);
     return () => clearInterval(timer);
   }, [ethanJobStatus, ethanJobId]);
@@ -500,9 +519,16 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
   };
 
   const ethanBaldLabel =
-    ethanJobStatus === 'submitting' ? 'submitting…' :
-    ethanJobStatus === 'processing' ? 'reconstructing…' :
+    ethanJobStatus === 'submitting'  ? 'submitting…' :
+    ethanJobStatus === 'processing'  ? 'reconstructing…' :
+    ethanJobStatus === 'smirk-only' ? 'ethan bald (no 3D)' :
     'ethan bald';
+
+  const ethanBaldOutline =
+    ethanJobStatus === 'done'        ? '2px solid #44ffdd' :
+    ethanJobStatus === 'smirk-only' ? '2px solid #ffaa44' :
+    ethanJobStatus === 'error'       ? '2px solid #ff4444' :
+    'none';
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -542,7 +568,7 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
           style={{
             ...btnStyle,
             opacity: (ethanJobStatus === 'submitting' || ethanJobStatus === 'processing') ? 0.5 : 1,
-            outline: ethanJobStatus === 'done' ? '2px solid #44ffdd' : ethanJobStatus === 'error' ? '2px solid #ff4444' : 'none',
+            outline: ethanBaldOutline,
           }}
         >
           {ethanBaldLabel}

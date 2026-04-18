@@ -18,7 +18,7 @@ import { useState } from 'react';
 const HairScene = dynamic(() => import('@/components/HairScene'), { ssr: false });
 
 export default function Home() {
-  const [showSetup, setShowSetup] = useState(true);
+  const [showSetup, setShowSetup] = useState(false);
   const [profile, setProfile] = useState<UserHeadProfile>(mockUserHeadProfile);
   const [params, setParams] = useState<HairParams>(mockUserHeadProfile.currentStyle.params);
 
