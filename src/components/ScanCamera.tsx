@@ -113,7 +113,7 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
     ctx.drawImage(video, cropX, cropY, cropSize, cropSize, 0, 0, W, H);
     ctx.restore();
 
-    const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    const imageDataUrl = canvas.toDataURL('image/png');
 
     drawOverlay(ctx, W, H, true);
 
