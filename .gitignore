@@ -5,6 +5,8 @@ build/
 
 # Dependencies
 node_modules/
+pnpm-lock.yaml
+pnpm.lockyaml
 
 # Env
 .env
