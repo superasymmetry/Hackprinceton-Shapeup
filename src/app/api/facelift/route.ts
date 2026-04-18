@@ -51,6 +51,15 @@ export async function GET(req: NextRequest) {
     headers: { 'ngrok-skip-browser-warning': 'true', 'User-Agent': 'shapeup' },
   });
 
-  const data = await upstream.json();
-  return NextResponse.json(data);
+  if (!upstream.ok) {
+    const text = await upstream.text().catch(() => '');
+    return NextResponse.json({ status: 'error', error: `FaceLift status error ${upstream.status}: ${text.slice(0, 200)}` }, { status: 502 });
+  }
+
+  try {
+    const data = await upstream.json();
+    return NextResponse.json(data);
+  } catch {
+    return NextResponse.json({ status: 'error', error: 'FaceLift returned non-JSON response' }, { status: 502 });
+  }
 }
