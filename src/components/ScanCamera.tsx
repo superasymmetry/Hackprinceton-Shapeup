@@ -6,7 +6,7 @@ import { UserHeadProfile } from '@/types';
 
 interface ScanCameraProps {
   hairType: 'straight' | 'wavy' | 'curly';
-  onScanComplete: (profile: UserHeadProfile) => void;
+  onScanComplete: (profile: UserHeadProfile, sessionId: string | null, imageUrl: string | null) => void;
   onDismiss: () => void;
 }
 
@@ -122,12 +122,6 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
 
     setPhase('captured');
 
-    fetch('/api/save-scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageDataUrl }),
-    });
-
     const profile: UserHeadProfile = {
       headProportions: { width: 1.6, height: 2.0, crownY: 1.0 },
       anchors: {
@@ -154,7 +148,23 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
       },
     };
 
-    onScanComplete(profile);
+    // Upload to Firebase and get session info before completing
+    let sessionId: string | null = null;
+    let uploadedImageUrl: string | null = null;
+    try {
+      const res = await fetch('/api/save-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageDataUrl }),
+      });
+      const data = await res.json();
+      sessionId = data.sessionId ?? null;
+      uploadedImageUrl = data.downloadUrl ?? null;
+    } catch {
+      // Non-fatal — proceed without session
+    }
+
+    onScanComplete(profile, sessionId, uploadedImageUrl);
   }
 
   const instruction =
