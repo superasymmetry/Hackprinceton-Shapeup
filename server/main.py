@@ -3,13 +3,10 @@ import requests
 import time
 
 # HairStep server (hair strand reconstruction)
-HAIRSTEP_URL  = "https://coconut-sublevel-pennant.ngrok-free.dev"
+FACELIFT_URL  = "https://coconut-sublevel-pennant.ngrok-free.dev"
 
-# FaceLift server (3D Gaussian head reconstruction)
-FACELIFT_URL  = "https://your-facelift-ngrok-url.ngrok-free.dev"
-
-ngrok_url = HAIRSTEP_URL  # swap to FACELIFT_URL to test FaceLift jobs
-image_path = "/Users/ethanchen/ShapeUp-HackPrinceton/server/imgs/bruno1.png"
+ngrok_url = FACELIFT_URL  # swap to FACELIFT_URL to test FaceLift jobs
+image_path = r"C:\Users\stringbot\Documents\Github\HackPrinceton\server\imgs\bruno1.png"
 
 headers = {
     "ngrok-skip-browser-warning": "true",
