@@ -79,6 +79,14 @@ def run_facelift(job_id: str, image_path: str) -> None:
         os.makedirs(output_dir, exist_ok=True)
 
         models = load_models()
+
+        # Remove hair before reconstruction so FaceLift sees a clean scalp.
+        # Face pixels are untouched, so landmark checks won't drift.
+        from hair_inpaint import inpaint_hair
+        bald_path = image_path.replace(".png", "_bald.png")
+        inpaint_hair(image_path, bald_path, device=models["device"])
+        image_path = bald_path
+
         from inference import process_single_image
 
         process_single_image(
