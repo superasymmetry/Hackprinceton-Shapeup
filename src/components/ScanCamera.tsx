@@ -14,7 +14,7 @@
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { UserHeadProfile } from '@/types';
+import { FaceFrame, UserHeadProfile } from '@/types';
 import { mediapipeToProfile, averageProfiles, ScanMeta } from '@/lib/mediapipeToProfile';
 
 interface ScanCameraProps {
@@ -131,11 +131,12 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
   // used for the face mesh instead of latestLandmarks (which by scan-end
   // are from the turn-right phase, i.e. the user looking sideways).
   const frontFaceSnapshot = useRef<{
-    landmarks:    Array<{ x: number; y: number; z: number }>;
+    landmarks: FaceFrame['landmarks'];
     imageDataUrl: string;
-    imageWidth:   number;
-    imageHeight:  number;
+    imageWidth: number;
+    imageHeight: number;
   } | null>(null);
+  const classifierSnapshots = useRef<FaceFrame[]>([]);
 
   // Per-phase frame buckets
   const frontProfiles     = useRef<Array<UserHeadProfile & { _meta: ScanMeta }>>([]);
@@ -151,6 +152,42 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
   const [phasesDone, setPhasesDone] = useState<Set<ScanPhase>>(new Set());
   const [errorMsg, setErrorMsg]     = useState('');
   const [instruction, setInstruction] = useState('Preparing camera…');
+
+  function captureFrameSnapshot(
+    landmarks: Array<{ x: number; y: number; z: number }>,
+    options?: { yawAbs?: number; frontFrameIndex?: number },
+  ): FaceFrame | null {
+    const v = videoRef.current;
+    if (!v) return null;
+
+    const snap = document.createElement('canvas');
+    snap.width = v.videoWidth || 640;
+    snap.height = v.videoHeight || 480;
+    const sCtx = snap.getContext('2d');
+    if (!sCtx) return null;
+
+    sCtx.drawImage(v, 0, 0, snap.width, snap.height);
+    let maskDataUrl: string | undefined;
+    if (latestMask.current) {
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = snap.width;
+      maskCanvas.height = snap.height;
+      const maskCtx = maskCanvas.getContext('2d');
+      if (maskCtx) {
+        maskCtx.putImageData(latestMask.current, 0, 0);
+        maskDataUrl = maskCanvas.toDataURL('image/png');
+      }
+    }
+    return {
+      landmarks: landmarks.map((lm) => ({ ...lm })),
+      imageDataUrl: snap.toDataURL('image/jpeg', 0.88),
+      maskDataUrl,
+      imageWidth: snap.width,
+      imageHeight: snap.height,
+      yawAbs: options?.yawAbs,
+      frontFrameIndex: options?.frontFrameIndex,
+    };
+  }
 
   function setPhaseSync(p: ScanPhase) {
     phaseRef.current = p;
@@ -307,31 +344,33 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
               hairType, imageWidth: 640, imageHeight: 480,
             });
             frontProfiles.current.push(profile);
-            setProgress(frontProfiles.current.length / FRONT_FRAMES);
+            const collected = frontProfiles.current.length;
+            setProgress(collected / FRONT_FRAMES);
 
             // Capture the frontal snapshot mid-way through collection.
             // At this point yaw has already passed the straight check so the
             // user is confirmed looking forward — this avoids using latestLandmarks
             // at scan-end (which are from the sideways turn-right phase).
             const snapAt = Math.floor(FRONT_FRAMES / 2);
-            if (frontProfiles.current.length === snapAt && !frontFaceSnapshot.current) {
-              const v = videoRef.current;
-              if (v) {
-                const snap = document.createElement('canvas');
-                snap.width  = v.videoWidth  || 640;
-                snap.height = v.videoHeight || 480;
-                const sCtx = snap.getContext('2d')!;
-                sCtx.drawImage(v, 0, 0, snap.width, snap.height);
-                frontFaceSnapshot.current = {
-                  landmarks:    lms.map(l => ({ ...l })),
-                  imageDataUrl: snap.toDataURL('image/jpeg', 0.85),
-                  imageWidth:   snap.width,
-                  imageHeight:  snap.height,
-                };
+            const ensembleStride = Math.max(1, Math.floor(FRONT_FRAMES / 10));
+            if (collected % ensembleStride === 0 && classifierSnapshots.current.length < 10) {
+              const frame = captureFrameSnapshot(lms, {
+                yawAbs: Math.abs(yaw),
+                frontFrameIndex: collected,
+              });
+              if (frame) classifierSnapshots.current.push(frame);
+            }
+            if (collected === snapAt && !frontFaceSnapshot.current) {
+              const frame = captureFrameSnapshot(lms, {
+                yawAbs: Math.abs(yaw),
+                frontFrameIndex: collected,
+              });
+              if (frame) {
+                frontFaceSnapshot.current = frame;
               }
             }
 
-            if (frontProfiles.current.length >= FRONT_FRAMES) {
+            if (collected >= FRONT_FRAMES) {
               setCollectingSync(false);
               setPhasesDone(prev => new Set(prev).add('front'));
               setProgress(0);
@@ -411,8 +450,12 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
     // Use the frontal snapshot captured mid-way through the front phase.
     // latestLandmarks at this point are from the turn-right phase (user
     // looking sideways), so we must NOT use them for the face mesh.
-    if (frontFaceSnapshot.current) {
-      averaged.faceScanData = frontFaceSnapshot.current;
+    const primaryFrame = frontFaceSnapshot.current ?? classifierSnapshots.current[0] ?? null;
+    if (primaryFrame) {
+      averaged.faceScanData = {
+        ...primaryFrame,
+        classifierFrames: classifierSnapshots.current,
+      };
     }
 
     onScanComplete(averaged);

@@ -17,5 +17,8 @@ node_modules/
 .idea/
 .vscode/
 
+# Haircut classifier (generated / local data)
+haircut-classifier/src/data/
+
 # Debug
 npm-debug.log*
