@@ -147,8 +147,6 @@ const HAIR_LAYERS = [
   { type: 'ply', id: 'strands_1',    label: 'Strands 1',   url: '/hair/strands_1.ply',   color: '#3b1f0a', lineWidth: 0.8, renderOrder: 0 },
   { type: 'ply', id: 'depth_1',      label: 'Depth 1',     url: '/hair/depth_1.ply',     color: '#3b1f0a', lineWidth: 1.0, renderOrder: 1 },
   { type: 'ply', id: 'preset_a',     label: 'Preset A',    url: '/hair/preset_a.ply',    color: '#c8a050', lineWidth: 0.8, renderOrder: 0 },
-  { type: 'ply', id: 'preset_b',     label: 'Preset B',    url: '/hair/preset_b.ply',    color: '#222222', lineWidth: 0.8, renderOrder: 0 },
-  { type: 'ply', id: 'preset_c',     label: 'Preset C',    url: '/hair/preset_c.ply',    color: '#8b1a0a', lineWidth: 0.8, renderOrder: 0 },
   { type: 'ply', id: 'guest',        label: 'Guest',       url: '/hair/guest.ply',       color: '#c0b090', lineWidth: 0.8, renderOrder: 0 },
   { type: 'ply', id: 'brunohair',    label: 'Bruno',       url: '/hair/brunohair.ply',   color: '#0f0d0c', lineWidth: 0.8, renderOrder: 0 },
   { type: 'npy', id: 'bruno_depth',  label: 'Bruno Depth', url: '/hair/brunohair_depth.npy', color: '#44aaff', lineWidth: 0, renderOrder: 0 },

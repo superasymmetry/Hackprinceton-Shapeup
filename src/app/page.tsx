@@ -1,6 +1,7 @@
 'use client';
 
 import { HairParams, UserHeadProfile } from '@/types';
+
 import EditPanel from '@/components/EditPanel';
 import dynamic from 'next/dynamic';
 import { mockUserHeadProfile } from '@/data/mockProfile';
@@ -42,7 +43,14 @@ export default function Home() {
           params={params}
           colorRGB={profile.currentStyle.colorRGB}
           profile={profile}
-          flameData={smirk.result ?? undefined}
+          flameData={
+            smirk.result
+              ? {
+                  vertices: smirk.result.vertices_canonical,
+                  faces: smirk.result.faces,
+                }
+              : undefined
+          }
         />
       </div>
       <div className="w-72 border-l border-gray-800 flex-shrink-0">
