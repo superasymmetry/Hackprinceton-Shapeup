@@ -1,118 +1,65 @@
 """
-Mask-constrained hair inpainting pipeline.
-
-Steps:
-  1. jonathandinu/face-parsing (SegFormer) → per-pixel hair mask
-  2. Dilate mask by DILATION_PX to catch stray edge pixels
-  3. OpenCV Telea inpainting propagates skin pixels from hairline inward
-     (fast, offline, no model download required)
-  4. Composite: inpainted result pasted over original; face pixels are never touched
-
-Because the face region is pixel-identical to the original, MediaPipe / FLAME
-landmark checks will not drift, eliminating the reject-and-retry loop.
+Gemini-based hair removal (baldifier).
+Replaces the SegFormer + Telea inpainting pipeline with a single Gemini
+image-editing call, which produces far more photorealistic results.
 """
 
-import cv2
-import numpy as np
+import os
+import io
 import torch
 from PIL import Image
-from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
+from google import genai
+from google.genai import types
 
-# jonathandinu/face-parsing: hair = 13 (not 17 as in vanilla CelebAMask-HQ)
-_HAIR_LABEL = 13
+PROMPT = """Remove all scalp hair from this person so they appear completely bald.
 
-DILATION_PX = 8
+Render the scalp as smooth, natural skin — matching the exact skin tone, \
+texture, and lighting of the face. Preserve the natural skull contour \
+implied by the existing hairline and head shape.
 
-_face_parser_cache: tuple | None = None
+Do NOT change anything else. Keep identical:
+- facial features, expression, and proportions
+- skin tone and texture on the face
+- eyebrows and any facial hair (beard, stubble, mustache)
+- ears, neck, shoulders
+- pose, camera angle, framing
+- lighting direction, shadows, and color grading
+- background
 
-
-def _face_parser():
-    global _face_parser_cache
-    if _face_parser_cache is None:
-        proc  = SegformerImageProcessor.from_pretrained("jonathandinu/face-parsing")
-        model = SegformerForSemanticSegmentation.from_pretrained("jonathandinu/face-parsing")
-        model.eval()
-        _face_parser_cache = (proc, model)
-    return _face_parser_cache
-
-
-def _hair_mask(image: Image.Image) -> np.ndarray:
-    """Binary uint8 mask (255 = hair) at original image resolution."""
-    proc, model = _face_parser()
-    inputs = proc(images=image, return_tensors="pt")
-    with torch.no_grad():
-        logits = model(**inputs).logits          # (1, C, H/4, W/4)
-    upsampled = torch.nn.functional.interpolate(
-        logits,
-        size=(image.height, image.width),
-        mode="bilinear",
-        align_corners=False,
-    )
-    seg = upsampled.argmax(dim=1).squeeze().numpy().astype(np.uint8)
-    return (seg == _HAIR_LABEL).astype(np.uint8) * 255
-
-
-def _dilate(mask: np.ndarray, px: int) -> np.ndarray:
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * px + 1, 2 * px + 1))
-    return cv2.dilate(mask, kernel)
-
-
-def _sample_skin_tone(img_rgb: np.ndarray, seg: np.ndarray, skin_label: int = 1) -> np.ndarray:
-    """Return median BGR color of skin-labeled pixels."""
-    skin_px = img_rgb[seg == skin_label]
-    if len(skin_px) == 0:
-        return np.array([180, 150, 130], dtype=np.uint8)
-    return np.median(skin_px, axis=0).astype(np.uint8)
+Output must be photorealistic. No stylization, no hats, no head coverings, \
+no added hair. Match the original photo's resolution and quality."""
 
 
 def inpaint_hair(image_path: str, output_path: str, device: torch.device | None = None) -> str:
-    """
-    Removes hair via a two-pass approach:
-      1. Pre-fill hair region with sampled skin tone so Telea never pulls background.
-      2. Telea inpaint a thin border band for smooth edge blending.
-    Face pixels are byte-identical to the original.
-    """
-    proc, model = _face_parser()
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not set")
 
-    orig    = Image.open(image_path).convert("RGB")
-    W, H    = orig.size
-    img_rgb = np.array(orig)
+    client = genai.Client(api_key=api_key)
 
-    # --- segmentation ---
-    inputs = proc(images=orig, return_tensors="pt")
-    with torch.no_grad():
-        logits = model(**inputs).logits
-    up  = torch.nn.functional.interpolate(logits, size=(H, W), mode="bilinear", align_corners=False)
-    seg = up.argmax(dim=1).squeeze().numpy().astype(np.uint8)
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
 
-    hair_mask = (seg == _HAIR_LABEL).astype(np.uint8) * 255
-    hair_mask = _dilate(hair_mask, DILATION_PX)
+    mime_type = "image/png" if image_path.lower().endswith(".png") else "image/jpeg"
 
-    if hair_mask.max() == 0:
-        Image.fromarray(img_rgb).save(output_path)
-        return output_path
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-exp-image-generation",
+        contents=[
+            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+            PROMPT,
+        ],
+        config=types.GenerateContentConfig(
+            response_modalities=["image", "text"],
+        ),
+    )
 
-    # --- pass 1: flood-fill hair region with median skin tone ---
-    skin_rgb  = _sample_skin_tone(img_rgb, seg)
-    prefilled = img_rgb.copy()
-    prefilled[hair_mask > 0] = skin_rgb
+    for part in response.candidates[0].content.parts:
+        if part.inline_data is not None:
+            img = Image.open(io.BytesIO(part.inline_data.data))
+            img.save(output_path)
+            return output_path
 
-    # --- pass 2: Telea on a thin edge band (erode mask, inpaint border only) ---
-    kernel_sm  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-    inner_mask = cv2.erode(hair_mask, kernel_sm, iterations=3)
-    edge_mask  = cv2.subtract(hair_mask, inner_mask)   # thin ring at boundary
-
-    img_bgr   = cv2.cvtColor(prefilled, cv2.COLOR_RGB2BGR)
-    blended   = cv2.inpaint(img_bgr, edge_mask, inpaintRadius=10, flags=cv2.INPAINT_TELEA)
-    result_rgb = cv2.cvtColor(blended, cv2.COLOR_BGR2RGB)
-
-    # Feather the hair mask for a soft composite
-    feather    = cv2.GaussianBlur(hair_mask.astype(np.float32), (21, 21), 0) / 255.0
-    alpha      = feather[:, :, np.newaxis]
-    composite  = (result_rgb * alpha + img_rgb * (1 - alpha)).astype(np.uint8)
-
-    Image.fromarray(composite).save(output_path)
-    return output_path
+    raise RuntimeError("Gemini returned no image")
 
 
 if __name__ == "__main__":

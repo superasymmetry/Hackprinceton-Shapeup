@@ -33,7 +33,7 @@ async function classifyImageWithScores(imageDataUrl: string): Promise<ProbsRespo
   const upstream = await fetch(`${HAIR_CLASSIFIER_URL}/classify/image/probs`, {
     method: 'POST',
     headers: {
-      'ngrok-skip-browser-warning': 'true',
+      'ngrok-skip-browser-warning': '1',
       'User-Agent': 'shapeup',
     },
     body: form,
