@@ -1,0 +1,21 @@
+# Next.js
+.next/
+out/
+build/
+
+# Dependencies
+node_modules/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Debug
+npm-debug.log*
