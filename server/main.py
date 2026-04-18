@@ -6,7 +6,7 @@ import time
 FACELIFT_URL  = "https://coconut-sublevel-pennant.ngrok-free.dev"
 
 ngrok_url = FACELIFT_URL  # swap to FACELIFT_URL to test FaceLift jobs
-image_path = r"C:\Users\stringbot\Documents\Github\HackPrinceton\server\imgs\bruno1.png"
+image_path = r"C:\Users\stringbot\Documents\Github\HackPrinceton\public\baldified\brunobald_bald.png"
 
 headers = {
     "ngrok-skip-browser-warning": "true",
