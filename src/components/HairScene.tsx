@@ -251,6 +251,7 @@ const HAIR_PLY_POS_DEFAULT: [number, number, number] = [0, -23.349, 0.714];
 // Colors are fixed per layer so you can distinguish overlapping sets visually.
 // type 'ply' → HairStrandMesh, type 'npy' → HairDepthPoints
 const HAIR_LAYERS = [
+  { type: 'ply', id: 'hair_modified', label: 'Modified',    url: '/hair/hair_modified.ply', color: '#dca850', lineWidth: 0.8, renderOrder: 0 },
   { type: 'ply', id: 'strands_1',    label: 'Strands 1',   url: '/hair/strands_1.ply',   color: '#3b1f0a', lineWidth: 0.8, renderOrder: 0 },
   { type: 'ply', id: 'depth_1',      label: 'Depth 1',     url: '/hair/depth_1.ply',     color: '#3b1f0a', lineWidth: 1.0, renderOrder: 1 },
   { type: 'ply', id: 'preset_a',     label: 'Preset A',    url: '/hair/preset_a.ply',    color: '#c8a050', lineWidth: 0.8, renderOrder: 0 },
@@ -346,7 +347,7 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
   const [showSplat, setShowSplat]     = useState(true);
   const [showFlame, setShowFlame]     = useState(false);
   const [visibleLayers, setVisibleLayers] = useState<Set<string>>(
-    new Set(['strands_1', 'depth_1'])
+    new Set(['hair_modified'])
   );
   const [plyBBox, setPlyBBox] = useState<PLYBBox | null>(null);
 
