@@ -259,7 +259,7 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
       >
         <Scene showPolycam={showPolycam} showSplat={showSplat} showFlame={showFlame} flameData={flameData} visibleLayers={visibleLayers} />
       </Canvas>
-      <div style={{ position: 'absolute', bottom: 12, left: 12, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '90%' }}>
+      <div style={{ position: 'absolute', bottom: 12, left: 12, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '90%', zIndex: 10, pointerEvents: 'auto' }}>
         <button onClick={() => setShowPolycam(v => !v)} style={{ ...btnStyle, opacity: showPolycam ? 1 : 0.4 }}>
           polycam
         </button>
