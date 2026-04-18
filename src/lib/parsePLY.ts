@@ -66,6 +66,71 @@ export async function parsePLY(url: string): Promise<THREE.BufferGeometry> {
   return geometry;
 }
 
+// Maps PLY scalar type names to byte sizes.
+const PLY_TYPE_SIZES: Record<string, number> = {
+  float: 4, float32: 4, double: 8, float64: 8,
+  char: 1, uchar: 1, short: 2, ushort: 2,
+  int: 4, uint: 4, int8: 1, uint8: 1,
+  int16: 2, uint16: 2, int32: 4, uint32: 4,
+};
+
+/**
+ * Parses a 3D Gaussian Splatting PLY file and returns the XYZ center of every
+ * Nth gaussian (subsampled for performance). Only reads x, y, z — all other
+ * properties (SH coefficients, opacity, scale, rotation) are skipped.
+ *
+ * The returned coordinates are in the PLY's internal coordinate space; callers
+ * must apply the scene's rotation/scale/translation to convert to scene space.
+ */
+export async function parseGaussianXYZ(
+  url: string,
+  step = 20,
+): Promise<{ x: number; y: number; z: number }[]> {
+  const buf = await fetch(url).then(r => r.arrayBuffer());
+  const bytes = new Uint8Array(buf);
+
+  // Locate end_header
+  const marker = 'end_header\n';
+  let dataStart = 0;
+  for (let i = 0; i < bytes.length - marker.length; i++) {
+    let match = true;
+    for (let j = 0; j < marker.length; j++) {
+      if (bytes[i + j] !== marker.charCodeAt(j)) { match = false; break; }
+    }
+    if (match) { dataStart = i + marker.length; break; }
+  }
+
+  const header = new TextDecoder().decode(buf.slice(0, dataStart));
+  const vertexCountMatch = header.match(/element vertex (\d+)/);
+  if (!vertexCountMatch) return [];
+  const vertexCount = parseInt(vertexCountMatch[1]);
+
+  // Parse property list to compute stride and x/y/z byte offsets
+  const propLines = [...header.matchAll(/^property (\S+) (\S+)$/gm)];
+  let stride = 0;
+  let xOff = -1, yOff = -1, zOff = -1;
+  for (const [, type, name] of propLines) {
+    const size = PLY_TYPE_SIZES[type] ?? 4;
+    if (name === 'x') xOff = stride;
+    else if (name === 'y') yOff = stride;
+    else if (name === 'z') zOff = stride;
+    stride += size;
+  }
+  if (xOff < 0 || yOff < 0 || zOff < 0 || stride === 0) return [];
+
+  const view = new DataView(buf, dataStart);
+  const out: { x: number; y: number; z: number }[] = [];
+  for (let i = 0; i < vertexCount; i += step) {
+    const base = i * stride;
+    out.push({
+      x: view.getFloat32(base + xOff, true),
+      y: view.getFloat32(base + yOff, true),
+      z: view.getFloat32(base + zOff, true),
+    });
+  }
+  return out;
+}
+
 export async function parsePLYWithBBox(url: string): Promise<PLYResult> {
   const buf = await fetch(url).then(r => r.arrayBuffer());
   const headerBytes = new Uint8Array(buf);

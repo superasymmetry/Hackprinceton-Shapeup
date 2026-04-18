@@ -6,7 +6,7 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { useThree } from '@react-three/fiber';
-import { parsePLY } from '@/lib/parsePLY';
+import { parsePLYWithBBox } from '@/lib/parsePLY';
 
 // Scene light directions (world space) — must match HairScene.tsx directionalLights.
 const LIGHT1_WS = new THREE.Vector3(5, 10, 5).normalize();
@@ -119,6 +119,8 @@ function applyKajiyaKay(mat: LineMaterial): void {
   };
 }
 
+export type PLYBBox = { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
+
 interface HairStrandMeshProps {
   url: string;
   color?: string;
@@ -126,6 +128,7 @@ interface HairStrandMeshProps {
   position?: [number, number, number];
   renderOrder?: number;
   lineWidth?: number;
+  onBBoxReady?: (bbox: PLYBBox) => void;
 }
 
 interface HairData {
@@ -139,6 +142,7 @@ export default function HairStrandMesh({
   position = [0, 0, 0],
   renderOrder = 0,
   lineWidth = 1.2,
+  onBBoxReady,
 }: HairStrandMeshProps) {
   const { size } = useThree();
   const [hairData, setHairData] = useState<HairData | null>(null);
@@ -146,7 +150,7 @@ export default function HairStrandMesh({
 
   useEffect(() => {
     let cancelled = false;
-    parsePLY(url).then(geo => {
+    parsePLYWithBBox(url).then(({ geometry: geo, bbox }) => {
       if (cancelled) { geo.dispose(); return; }
 
       const posAttr   = geo.attributes.position as THREE.BufferAttribute;
@@ -183,6 +187,7 @@ export default function HairStrandMesh({
       const data: HairData = { lineSegs: ls };
       hairDataRef.current = data;
       setHairData(data);
+      onBBoxReady?.(bbox);
     });
     return () => {
       cancelled = true;
@@ -194,6 +199,13 @@ export default function HairStrandMesh({
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
+
+  // Reactively update scale/position when props change (e.g. after FLAME data arrives)
+  useEffect(() => {
+    if (!hairDataRef.current) return;
+    hairDataRef.current.lineSegs.scale.set(scale, scale, scale);
+    hairDataRef.current.lineSegs.position.set(...position);
+  }, [scale, position[0], position[1], position[2]]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep resolution in sync when canvas resizes
   useEffect(() => {

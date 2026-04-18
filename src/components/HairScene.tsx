@@ -19,12 +19,123 @@ import * as THREE from 'three';
 
 import { HairParams, UserHeadProfile } from '@/types';
 import { OrbitControls, Splat, useGLTF } from '@react-three/drei';
-import React, { Suspense, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Canvas } from '@react-three/fiber';
 import FlameMesh from './FlameMesh';
-import HairStrandMesh from './HairStrandMesh';
+import HairStrandMesh, { PLYBBox } from './HairStrandMesh';
 import { parseNPY } from '@/lib/parseNPY';
+import { parseGaussianXYZ } from '@/lib/parsePLY';
+
+const FLAME_TO_SCENE = 10;
+
+// Derives hair scale and Y-position so the hair sits correctly on the FLAME canonical head.
+// The PLY coordinate system (HairStep output) has the head center at approximately y=1.72.
+// FLAME canonical verts are in meters; FLAME_TO_SCENE converts them to scene units.
+function computeHairTransform(
+  flameVerts: number[][],
+  plyBBox: PLYBBox,
+): { scale: number; posY: number } {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const v of flameVerts) {
+    if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+    if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+  }
+  const flameHeadWidth = (maxX - minX) * FLAME_TO_SCENE;
+  const flameCrownY    = maxY * FLAME_TO_SCENE;
+  const faceHeight     = (maxY - minY) * FLAME_TO_SCENE;
+
+  const plyWidth   = plyBBox.maxX - plyBBox.minX;
+  const plyYCenter = (plyBBox.minY + plyBBox.maxY) / 2;
+
+  // Hair typically spans ~2.8× the face width (accounts for volume beyond the head).
+  // This ratio was back-derived from the manually-tuned HAIR_PLY_SCALE=13.109 and PLY_W≈0.34.
+  const SPREAD_RATIO = 2.79;
+  const scale = (flameHeadWidth * SPREAD_RATIO) / Math.max(plyWidth, 1e-6);
+
+  // Align the PLY Y-center to just below the crown (hair runs from crown down to ears/neck).
+  // 0.95× faceHeight below crown ≈ chin level, matching the hand-tuned HAIR_PLY_POS[1].
+  const targetYCenter = flameCrownY - faceHeight * 0.95;
+  const posY = targetYCenter - plyYCenter * scale;
+
+  return { scale, posY };
+}
+
+// Derives Splat scale and Y-position from FLAME crown and head width.
+// The Splat uses rotation [-π/2, π, π] so scene Y = splat-internal Z.
+// SPLAT_CROWN_Z is the internal-Z of the crown, back-derived from:
+//   canonical splatScale=2.772, splatPosY=-0.07, flameCrownY≈1.0
+//   SPLAT_CROWN_Z = (flameCrownY_canonical - splatPosY_canonical) / splatScale_canonical
+const SPLAT_CANONICAL_SCALE = 2.772;
+const SPLAT_CANONICAL_HEAD_WIDTH = 1.6;
+const SPLAT_CROWN_Z = (1.0 - (-0.07)) / 2.772;  // ≈ 0.386
+
+function computeSplatTransform(
+  flameVerts: number[][],
+): { scale: number; posY: number } {
+  let minX = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const v of flameVerts) {
+    if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+    if (v[1] > maxY) maxY = v[1];
+  }
+  const flameHeadWidth = (maxX - minX) * FLAME_TO_SCENE;
+  const flameCrownY    = maxY * FLAME_TO_SCENE;
+
+  const scale = (flameHeadWidth / SPLAT_CANONICAL_HEAD_WIDTH) * SPLAT_CANONICAL_SCALE;
+  const posY  = flameCrownY - SPLAT_CROWN_Z * scale;
+
+  return { scale, posY };
+}
+
+// ── Gaussian head bounds ─────────────────────────────────────
+//
+// The splat renderer applies: scene = splatScale * R * g + [0, splatPosY, 0.48]
+// where R is the rotation matrix for Euler [-π/2, π, π] (XYZ order):
+//   R = [[1,0,0],[0,0,-1],[0,1,0]]
+// So:  scene_x = splatScale * gx
+//      scene_y = splatScale * (-gz) + splatPosY
+//      scene_z = splatScale * gy   + 0.48
+//
+// Crown = max(scene_y) = splatPosY - splatScale * min(gz)
+// Head width = splatScale * (max(gx) - min(gx))
+
+interface GaussianHeadBounds {
+  crownY: number;
+  headWidth: number;
+}
+
+function computeHeadBoundsFromGaussians(
+  centers: { x: number; y: number; z: number }[],
+  splatScale: number,
+  splatPosY: number,
+): GaussianHeadBounds {
+  let minGz = Infinity, minGx = Infinity, maxGx = -Infinity;
+  for (const g of centers) {
+    if (g.z < minGz) minGz = g.z;
+    if (g.x < minGx) minGx = g.x;
+    if (g.x > maxGx) maxGx = g.x;
+  }
+  return {
+    crownY:    splatPosY - splatScale * minGz,
+    headWidth: splatScale * (maxGx - minGx),
+  };
+}
+
+// Crown-to-crown hair alignment.
+// Scale maps the hair PLY to scene space using the gaussian-derived head width.
+// SPREAD_RATIO is unchanged — it accounts for hair volume extending beyond the
+// head silhouette and is a property of the hair shape, not the head size.
+function computeHairTransformCrownAligned(
+  headBounds: GaussianHeadBounds,
+  plyBBox: PLYBBox,
+): { scale: number; posY: number } {
+  const plyWidth = plyBBox.maxX - plyBBox.minX;
+  const SPREAD_RATIO = 2.79;
+  const scale = (headBounds.headWidth * SPREAD_RATIO) / Math.max(plyWidth, 1e-6);
+  // Pin the hair's topmost strand (plyBBox.maxY * scale + posY) to the head crown.
+  const posY = headBounds.crownY - plyBBox.maxY * scale;
+  return { scale, posY };
+}
 
 // ── Polycam head ─────────────────────────────────────────────
 function PolycamHeadGLB() {
@@ -131,13 +242,10 @@ function HairDepthPoints({ url, color, scale, position }: {
 
 // ── Scene content ───────────────────────────────────────────
 
-// PLY hair bbox (scene units): width≈0.34, height≈0.37, depth≈0.30, center y≈1.72
-// Head is 1.6 canonical × MODEL_SCALE 1.5 ≈ 2.4 units wide, crown at world y≈1.26.
-// Scale 9 brings hair width to ~3.1 units (matching head), matching the observed
-// 50%-too-narrow issue.  Y: PLY_ymin(1.5373)*9=13.84; pos_y = crown(1.26)−13.84=−12.58
-// Z: PLY z-center is −0.016; at scale 9 that's −0.14, so +0.14 re-centers it.
-const HAIR_PLY_SCALE   = 13.109;
-const HAIR_PLY_POS: [number, number, number] = [0, -23.349, 0.714];
+// Fallback hair transform used before FLAME data + PLY bbox are both available.
+// Derived by manually aligning brunohair.ply to the reference Polycam head.
+const HAIR_PLY_SCALE_DEFAULT   = 13.109;
+const HAIR_PLY_POS_DEFAULT: [number, number, number] = [0, -23.349, 0.714];
 
 // Dev: all known hair layers. Toggle multiple simultaneously to identify pairs.
 // Colors are fixed per layer so you can distinguish overlapping sets visually.
@@ -163,9 +271,15 @@ interface SceneProps {
   showFlame?: boolean;
   visibleLayers: Set<string>;
   flameData?: FlameData;
+  hairScale: number;
+  hairPos: [number, number, number];
+  splatScale: number;
+  splatPosY: number;
+  splatSrc: string;
+  onHairBBoxReady: (bbox: PLYBBox) => void;
 }
 
-function Scene({ showPolycam = false, showSplat = true, showFlame = false, visibleLayers, flameData }: SceneProps) {
+function Scene({ showPolycam = false, showSplat = true, showFlame = false, visibleLayers, flameData, hairScale, hairPos, splatScale, splatPosY, splatSrc, onHairBBoxReady }: SceneProps) {
   return (
     <>
       <ambientLight intensity={0.5} />
@@ -176,7 +290,7 @@ function Scene({ showPolycam = false, showSplat = true, showFlame = false, visib
 
       {showSplat && (
         <Suspense fallback={null}>
-          <Splat src="/models/gaussians.splat" alphaTest={0.02} scale={2.772} position={[0, -0.07, 0.48]} rotation={[-Math.PI / 2, Math.PI, Math.PI]} />
+          <Splat src={splatSrc} alphaTest={0.02} scale={splatScale} position={[0, splatPosY, 0.48]} rotation={[-Math.PI / 2, Math.PI, Math.PI]} />
         </Suspense>
       )}
 
@@ -186,18 +300,19 @@ function Scene({ showPolycam = false, showSplat = true, showFlame = false, visib
             key={l.id}
             url={l.url}
             color={l.color}
-            scale={HAIR_PLY_SCALE}
-            position={HAIR_PLY_POS}
+            scale={hairScale}
+            position={hairPos}
           />
         ) : (
           <HairStrandMesh
             key={l.id}
             url={l.url}
             color={l.color}
-            scale={HAIR_PLY_SCALE}
-            position={HAIR_PLY_POS}
+            scale={hairScale}
+            position={hairPos}
             lineWidth={l.lineWidth}
             renderOrder={l.renderOrder}
+            onBBoxReady={onHairBBoxReady}
           />
         )
       )}
@@ -233,6 +348,143 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
   const [visibleLayers, setVisibleLayers] = useState<Set<string>>(
     new Set(['strands_1', 'depth_1'])
   );
+  const [plyBBox, setPlyBBox] = useState<PLYBBox | null>(null);
+
+  // Local FLAME data fetched from a test image
+  const [localFlameData, setLocalFlameData] = useState<FlameData | null>(null);
+
+  // FaceLift job state for ethansample_bald test
+  const [ethanJobId, setEthanJobId]       = useState<string | null>(null);
+  const [ethanJobStatus, setEthanJobStatus] = useState<'idle' | 'submitting' | 'processing' | 'done' | 'error'>('idle');
+  const [ethanSplatSrc, setEthanSplatSrc] = useState<string | null>(null);
+  // Gaussian-derived head bounds used for crown-to-crown hair alignment.
+  const [gaussianHeadBounds, setGaussianHeadBounds] = useState<GaussianHeadBounds | null>(null);
+
+  // Loads ethansample_bald.png (falls back to ethansample.png), fires FaceLift +
+  // SMIRK in parallel.  FaceLift result becomes the active splat source; SMIRK
+  // result drives FLAME alignment for both the splat and Bruno hair.
+  const loadEthanBald = useCallback(async () => {
+    if (ethanJobStatus === 'submitting' || ethanJobStatus === 'processing') return;
+    setEthanJobStatus('submitting');
+
+    let dataUrl: string;
+    try {
+      const r = await fetch('/baldified/ethansample_bald.png');
+      const blob = await (r.ok ? r : await fetch('/hair/ethansample.png')).blob();
+      dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      setEthanJobStatus('error');
+      return;
+    }
+
+    // SMIRK runs immediately (fast); FaceLift is long (~3 min)
+    const smirkP = fetch('/api/smirk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageDataUrl: dataUrl }),
+    })
+      .then(r => r.json())
+      .then(data => { if (!data.error) setLocalFlameData({ vertices: data.vertices_canonical, faces: data.faces }); })
+      .catch(() => {});
+
+    const faceliftP = fetch('/api/facelift', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageDataUrl: dataUrl }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.jobId) {
+          setEthanJobId(data.jobId);
+          setEthanJobStatus('processing');
+        } else {
+          setEthanJobStatus('error');
+        }
+      })
+      .catch(() => setEthanJobStatus('error'));
+
+    await Promise.all([smirkP, faceliftP]);
+  }, [ethanJobStatus]);
+
+  // Poll FaceLift until the job finishes, then set the splat source URL.
+  // The URL ends in .ply so drei Splat detects the format automatically.
+  useEffect(() => {
+    if (ethanJobStatus !== 'processing' || !ethanJobId) return;
+    const timer = setInterval(async () => {
+      try {
+        const res  = await fetch(`/api/facelift?jobId=${ethanJobId}`);
+        const data = await res.json() as { status: string };
+        if (data.status === 'success') {
+          clearInterval(timer);
+          setEthanSplatSrc(`/api/facelift/${ethanJobId}/gaussians.ply`);
+          setEthanJobStatus('done');
+        } else if (data.status === 'error') {
+          clearInterval(timer);
+          setEthanJobStatus('error');
+        }
+      } catch { /* transient — keep polling */ }
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [ethanJobStatus, ethanJobId]);
+
+  // Once the FaceLift splat and its SMIRK-derived splatTransform are both ready,
+  // parse the gaussian centers to compute the actual head crown and width in scene
+  // space. This drives crown-to-crown hair alignment instead of FLAME estimates.
+  const splatTransformRef = useMemo(() => {
+    if (!localFlameData && !flameData) return null;
+    const verts = (flameData ?? localFlameData)!.vertices;
+    return computeSplatTransform(verts);
+  }, [flameData, localFlameData]);
+
+  useEffect(() => {
+    if (!ethanSplatSrc || !splatTransformRef) return;
+    let cancelled = false;
+    parseGaussianXYZ(ethanSplatSrc, 20)
+      .then(centers => {
+        if (cancelled || centers.length === 0) return;
+        const bounds = computeHeadBoundsFromGaussians(
+          centers,
+          splatTransformRef.scale,
+          splatTransformRef.posY,
+        );
+        console.log('[HairScene] gaussian crown', bounds.crownY.toFixed(3), 'headWidth', bounds.headWidth.toFixed(3));
+        setGaussianHeadBounds(bounds);
+      })
+      .catch(e => console.warn('[HairScene] gaussian parse failed', e));
+    return () => { cancelled = true; };
+  }, [ethanSplatSrc, splatTransformRef]);
+
+  // Prop flameData (from real webcam scan) takes priority over test data
+  const effectiveFlameData = flameData ?? localFlameData ?? undefined;
+
+  // ethanSplatSrc (FaceLift result) replaces the static gaussians.splat when ready
+  const effectiveSplatSrc = ethanSplatSrc ?? '/models/gaussians.splat';
+
+  const hairTransform = useMemo(() => {
+    if (!plyBBox) return null;
+    // Prefer gaussian-derived crown alignment (person-specific, from FaceLift).
+    if (gaussianHeadBounds) return computeHairTransformCrownAligned(gaussianHeadBounds, plyBBox);
+    // Fall back to FLAME-based estimate when gaussians aren't parsed yet.
+    if (effectiveFlameData) return computeHairTransform(effectiveFlameData.vertices, plyBBox);
+    return null;
+  }, [gaussianHeadBounds, effectiveFlameData, plyBBox]);
+
+  const splatTransform = useMemo(() => {
+    if (!effectiveFlameData) return null;
+    return computeSplatTransform(effectiveFlameData.vertices);
+  }, [effectiveFlameData]);
+
+  const hairScale = hairTransform?.scale ?? HAIR_PLY_SCALE_DEFAULT;
+  const hairPos: [number, number, number] = [
+    HAIR_PLY_POS_DEFAULT[0],
+    hairTransform?.posY ?? HAIR_PLY_POS_DEFAULT[1],
+    HAIR_PLY_POS_DEFAULT[2],
+  ];
 
   const toggleLayer = (id: string) =>
     setVisibleLayers(prev => {
@@ -247,6 +499,11 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
     borderRadius: 4, cursor: 'pointer',
   };
 
+  const ethanBaldLabel =
+    ethanJobStatus === 'submitting' ? 'submitting…' :
+    ethanJobStatus === 'processing' ? 'reconstructing…' :
+    'ethan bald';
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <Canvas
@@ -255,7 +512,19 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
         camera={{ position: [0, 0, 7.8], fov: 45 }}
         style={{ width: '100%', height: '100%', background: '#001f5b' }}
       >
-        <Scene showPolycam={showPolycam} showSplat={showSplat} showFlame={showFlame} flameData={flameData} visibleLayers={visibleLayers} />
+        <Scene
+          showPolycam={showPolycam}
+          showSplat={showSplat}
+          showFlame={showFlame}
+          flameData={effectiveFlameData}
+          visibleLayers={visibleLayers}
+          hairScale={hairScale}
+          hairPos={hairPos}
+          splatScale={splatTransform?.scale ?? 2.772}
+          splatPosY={splatTransform?.posY ?? -0.07}
+          splatSrc={effectiveSplatSrc}
+          onHairBBoxReady={setPlyBBox}
+        />
       </Canvas>
       <div style={{ position: 'absolute', bottom: 12, left: 12, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '90%', zIndex: 10, pointerEvents: 'auto' }}>
         <button onClick={() => setShowPolycam(v => !v)} style={{ ...btnStyle, opacity: showPolycam ? 1 : 0.4 }}>
@@ -264,8 +533,19 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
         <button onClick={() => setShowSplat(v => !v)} style={{ ...btnStyle, opacity: showSplat ? 1 : 0.4 }}>
           gaussians
         </button>
-        <button onClick={() => setShowFlame(v => !v)} style={{ ...btnStyle, opacity: showFlame ? 1 : 0.4, outline: flameData ? '2px solid #44ffdd' : 'none' }}>
+        <button onClick={() => setShowFlame(v => !v)} style={{ ...btnStyle, opacity: showFlame ? 1 : 0.4, outline: effectiveFlameData ? '2px solid #44ffdd' : 'none' }}>
           flame
+        </button>
+        <button
+          onClick={loadEthanBald}
+          disabled={ethanJobStatus === 'submitting' || ethanJobStatus === 'processing'}
+          style={{
+            ...btnStyle,
+            opacity: (ethanJobStatus === 'submitting' || ethanJobStatus === 'processing') ? 0.5 : 1,
+            outline: ethanJobStatus === 'done' ? '2px solid #44ffdd' : ethanJobStatus === 'error' ? '2px solid #ff4444' : 'none',
+          }}
+        >
+          {ethanBaldLabel}
         </button>
         {HAIR_LAYERS.map(l => (
           <button key={l.id} onClick={() => toggleLayer(l.id)} style={{
