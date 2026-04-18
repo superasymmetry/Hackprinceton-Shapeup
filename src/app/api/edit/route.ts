@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${process.env.GEMINI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3.1-flash-image-preview',
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: message },
