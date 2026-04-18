@@ -41,31 +41,42 @@ export async function POST(req: NextRequest) {
   let downloadUrl: string | null = null;
   let sessionId: string | null = null;
 
+  // Generate a session ID first so we can use it in the storage path
+  let pendingSessionId: string | null = null;
   try {
-    const storageRef = ref(storage, `scans/${Date.now()}/scan_1.png`);
+    const sessionRef = await addDoc(collection(db, 'session'), { createdAt: serverTimestamp() });
+    pendingSessionId = sessionRef.id;
+  } catch (err) {
+    console.error('[save-scan] Firestore pre-create failed (non-fatal):', err);
+    pendingSessionId = `local_${Date.now()}`;
+  }
+
+  try {
+    const storageRef = ref(storage, `scans/${pendingSessionId}/scan_${Date.now()}.png`);
     console.log('[save-scan] uploading to Firebase Storage...');
     const snapshot = await uploadBytes(storageRef, buffer, { contentType: 'image/png' });
     downloadUrl = await getDownloadURL(snapshot.ref);
     console.log('[save-scan] uploaded, downloadUrl:', downloadUrl);
   } catch (err) {
-    // Storage rules may be blocking unauthenticated writes — update Firebase Storage rules to allow /scans/**
     console.error('[save-scan] Firebase Storage upload failed (non-fatal):', err);
   }
 
-  if (downloadUrl) {
+  if (downloadUrl && pendingSessionId && !pendingSessionId.startsWith('local_')) {
     try {
-      console.log('[save-scan] writing Firestore document...');
-      const sessionRef = await addDoc(collection(db, 'session'), {
-        scan_1: downloadUrl,
-        scan_1_timestamp: serverTimestamp(),
+      const { doc, updateDoc, arrayUnion } = await import('firebase/firestore');
+      await updateDoc(doc(db, 'session', pendingSessionId), {
+        images: arrayUnion(downloadUrl),
       });
-      sessionId = sessionRef.id;
-      console.log('[save-scan] Firestore doc created, id:', sessionId);
+      sessionId = pendingSessionId;
+      console.log('[save-scan] Firestore doc updated with images array, id:', sessionId);
     } catch (err) {
-      console.error('[save-scan] Firestore write failed (non-fatal):', err);
+      console.error('[save-scan] Firestore update failed (non-fatal):', err);
+      sessionId = pendingSessionId;
     }
+  } else {
+    sessionId = pendingSessionId;
   }
 
   console.log('[save-scan] done — sessionId:', sessionId, 'downloadUrl:', downloadUrl);
-  return NextResponse.json({ ok: true, sessionId, scan_1: downloadUrl });
+  return NextResponse.json({ ok: true, sessionId, downloadUrl });
 }
