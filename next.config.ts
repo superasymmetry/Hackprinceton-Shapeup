@@ -1,8 +1,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Needed for @react-three/fiber / drei compatibility
-  transpilePackages: ['three'],
+  transpilePackages: ['three', '@react-three/fiber', '@react-three/drei'],
 };
 
 export default nextConfig;
