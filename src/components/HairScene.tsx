@@ -22,6 +22,7 @@ import { OrbitControls, Splat, useGLTF } from '@react-three/drei';
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 
 import { Canvas } from '@react-three/fiber';
+import FlameMesh from './FlameMesh';
 import HairStrandMesh from './HairStrandMesh';
 import { parseNPY } from '@/lib/parseNPY';
 
@@ -153,13 +154,20 @@ const HAIR_LAYERS = [
 ] as const;
 
 
+interface FlameData {
+  vertices: number[][];
+  faces:    number[][];
+}
+
 interface SceneProps {
   showPolycam?: boolean;
   showSplat?: boolean;
+  showFlame?: boolean;
   visibleLayers: Set<string>;
+  flameData?: FlameData;
 }
 
-function Scene({ showPolycam = false, showSplat = true, visibleLayers }: SceneProps) {
+function Scene({ showPolycam = false, showSplat = true, showFlame = false, visibleLayers, flameData }: SceneProps) {
   return (
     <>
       <ambientLight intensity={0.5} />
@@ -196,6 +204,10 @@ function Scene({ showPolycam = false, showSplat = true, visibleLayers }: ScenePr
         )
       )}
 
+      {showFlame && flameData && (
+        <FlameMesh vertices={flameData.vertices} faces={flameData.faces} />
+      )}
+
       <OrbitControls
         enablePan={false}
         minPolarAngle={0}
@@ -210,14 +222,16 @@ function Scene({ showPolycam = false, showSplat = true, visibleLayers }: ScenePr
 // ── Public component ────────────────────────────────────────
 
 interface HairSceneProps {
-  params:    HairParams;
-  colorRGB?: string;
-  profile?:  UserHeadProfile;
+  params:     HairParams;
+  colorRGB?:  string;
+  profile?:   UserHeadProfile;
+  flameData?: FlameData;
 }
 
-export default function HairScene({ params: _params, colorRGB: _colorRGB, profile: _profile }: HairSceneProps) {
+export default function HairScene({ params: _params, colorRGB: _colorRGB, profile: _profile, flameData }: HairSceneProps) {
   const [showPolycam, setShowPolycam] = useState(false);
-  const [showSplat, setShowSplat] = useState(true);
+  const [showSplat, setShowSplat]     = useState(true);
+  const [showFlame, setShowFlame]     = useState(false);
   const [visibleLayers, setVisibleLayers] = useState<Set<string>>(
     new Set(['strands_1', 'depth_1'])
   );
@@ -243,7 +257,7 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
         camera={{ position: [0, 0, 7.8], fov: 45 }}
         style={{ width: '100%', height: '100%', background: '#001f5b' }}
       >
-        <Scene showPolycam={showPolycam} showSplat={showSplat} visibleLayers={visibleLayers} />
+        <Scene showPolycam={showPolycam} showSplat={showSplat} showFlame={showFlame} flameData={flameData} visibleLayers={visibleLayers} />
       </Canvas>
       <div style={{ position: 'absolute', bottom: 12, left: 12, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '90%' }}>
         <button onClick={() => setShowPolycam(v => !v)} style={{ ...btnStyle, opacity: showPolycam ? 1 : 0.4 }}>
@@ -251,6 +265,9 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
         </button>
         <button onClick={() => setShowSplat(v => !v)} style={{ ...btnStyle, opacity: showSplat ? 1 : 0.4 }}>
           gaussians
+        </button>
+        <button onClick={() => setShowFlame(v => !v)} style={{ ...btnStyle, opacity: showFlame ? 1 : 0.4, outline: flameData ? '2px solid #44ffdd' : 'none' }}>
+          flame
         </button>
         {HAIR_LAYERS.map(l => (
           <button key={l.id} onClick={() => toggleLayer(l.id)} style={{

@@ -8,6 +8,8 @@ import ScanSetup from '@/components/ScanSetup';
 import dynamic from 'next/dynamic';
 import { mockUserHeadProfile } from '@/data/mockProfile';
 import { useFaceLift } from '@/hooks/useFaceLift';
+import { useHairStep } from '@/hooks/useHairStep';
+import { useSmirk } from '@/hooks/useSmirk';
 import { useState } from 'react';
 
 // Dynamically import HairScene (Three.js — no SSR)
@@ -18,9 +20,12 @@ export default function Home() {
   const [profile, setProfile] = useState<UserHeadProfile>(mockUserHeadProfile);
   const [params, setParams] = useState<HairParams>(mockUserHeadProfile.currentStyle.params);
 
-  // Kick off FaceLift as soon as the scan captures a frontal snapshot.
+  // Both jobs fire in parallel as soon as the scan captures a frontal snapshot.
   // imageDataUrl is undefined until a real webcam scan completes (mock profile has none).
-  const facelift = useFaceLift(profile.faceScanData?.imageDataUrl);
+  // HairStep receives the original photo; FaceLift baldifies it server-side before reconstructing.
+  const facelift  = useFaceLift(profile.faceScanData?.imageDataUrl);
+  const hairstep  = useHairStep(profile.faceScanData?.imageDataUrl);
+  const smirk     = useSmirk(profile.faceScanData?.imageDataUrl);
 
   const handleSetupComplete = (newProfile: UserHeadProfile) => {
     setProfile(newProfile);
@@ -42,7 +47,12 @@ export default function Home() {
 
       {/* 3D Viewport */}
       <div className="flex-1 relative">
-        <HairScene params={params} colorRGB={profile.currentStyle.colorRGB} profile={profile} />
+        <HairScene
+          params={params}
+          colorRGB={profile.currentStyle.colorRGB}
+          profile={profile}
+          flameData={smirk.result ?? undefined}
+        />
         <div className="absolute top-3 left-3 text-xs text-gray-500 pointer-events-none">
           ShapeUp · drag to rotate
         </div>
