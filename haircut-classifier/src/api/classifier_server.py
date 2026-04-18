@@ -48,6 +48,16 @@ class TextRequest(BaseModel):
     prompt: str
 
 
+def _read_upload_image(image: UploadFile) -> Image.Image:
+    if image.content_type is None or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="expected an image upload")
+    try:
+        raw = image.file.read()
+        return Image.open(io.BytesIO(raw))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"bad image: {e}") from e
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok"}
@@ -61,14 +71,14 @@ def taxonomy() -> JSONResponse:
 
 @app.post("/classify/image")
 async def classify_image(image: UploadFile = File(...)) -> dict:
-    if image.content_type is None or not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="expected an image upload")
-    raw = await image.read()
-    try:
-        pil = Image.open(io.BytesIO(raw))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"bad image: {e}") from e
+    pil = _read_upload_image(image)
     return get_classifier().classify_image(pil)
+
+
+@app.post("/classify/image/probs")
+async def classify_image_probs(image: UploadFile = File(...)) -> dict:
+    pil = _read_upload_image(image)
+    return get_classifier().classify_image_probs(pil)
 
 
 @app.post("/classify/text")

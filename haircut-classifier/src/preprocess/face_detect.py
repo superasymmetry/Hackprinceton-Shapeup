@@ -1,8 +1,7 @@
 """OpenCV Haar-cascade-based face detection + head-region crop.
 
-Note: MediaPipe's `solutions` API was removed on Python 3.14; we use OpenCV's
-bundled Haar cascade instead. It's less accurate than MediaPipe short-range
-but needs no extra weights and works everywhere.
+We use OpenCV's bundled Haar cascade instead of MediaPipe. It's less accurate
+than MediaPipe short-range, but needs no extra weights and works everywhere.
 
 Two crops are produced per accepted image:
   - portrait_crop: face + shoulders + surrounding context (for style cues)
@@ -10,11 +9,15 @@ Two crops are produced per accepted image:
 
 Images are rejected when:
   - no face is detected
-  - more than one face is detected (we don't know which person to label)
   - the face box is smaller than MIN_FACE_PX (too far / too low-res)
   - variance of Laplacian indicates blur
 
-MediaPipe is imported lazily so tests/CI can run without it installed.
+When more than one face is detected, we keep the largest face rather than
+rejecting the sample. This is more robust for editorial images with small
+background bystanders.
+
+OpenCV is imported lazily so tests/CI do not pay startup cost unless cropping
+is actually used.
 """
 from __future__ import annotations
 

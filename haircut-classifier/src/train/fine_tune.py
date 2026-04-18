@@ -39,7 +39,12 @@ def run(cfg: TrainConfig | None = None) -> None:
     backbone = load_backbone(name=cfg.backbone, pretrained=cfg.pretrained)
     zero_shot_state = copy.deepcopy(backbone.model.state_dict())
 
-    train_ds = HaircutDataset("train", backbone.preprocess, sample_prompt=True)
+    train_ds = HaircutDataset(
+        "train",
+        backbone.preprocess,
+        sample_prompt=True,
+        augment=True,
+    )
     val_ds = HaircutDataset("val", backbone.preprocess, sample_prompt=False)
     num_classes = len(train_ds.style_ids)
 

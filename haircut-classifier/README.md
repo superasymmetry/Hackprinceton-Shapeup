@@ -1,7 +1,7 @@
 # haircut-classifier
 
 Closed-set haircut classifier for the ShapeUp app. Maps either an image or a
-text prompt to one of ~50 vetted `style_id`s from a frozen taxonomy.
+text prompt to one of 50 vetted `style_id`s from a frozen taxonomy.
 
 Replaces free-form LLM haircut naming (which hallucinates specific cuts) with a
 CLIP-family classifier constrained to known styles.
@@ -28,14 +28,18 @@ pip install -r requirements.txt
 # M1 — sanity-check the frozen taxonomy
 pytest tests/test_taxonomy.py
 
-# M2 — pull datasets (K-Hairstyle needs a manual request form)
-bash scripts/download_datasets.sh
+# M2 — build labels from FaceSketches-HairStyle40 + scraped folders
+python scripts/ingest_datasets.py
+python scripts/make_splits.py
 
 # M4 — zero-shot baseline, no training required
 python scripts/run_zero_shot.py --split val
 
 # M5 — fine-tune
 python scripts/run_fine_tune.py --config configs/fine_tune.yaml
+
+# M7 — calibrate the actual serving path
+python scripts/run_calibration.py
 
 # M8 — serve
 uvicorn src.api.classifier_server:app --host 0.0.0.0 --port 5003
@@ -63,7 +67,6 @@ user or fall back to a broader category.
 
 ## Datasets used
 
-See `haircut-classifier/README.md` and the plan at
-`~/.claude/plans/goal-build-a-closed-set-witty-catmull.md` for dataset sources.
-Primary: Hairstyle30k. Secondary: K-Hairstyle, CelebAMask-HQ. Augmentation:
-targeted scrape for male barbershop cuts underrepresented in the public sets.
+Primary labeled sources in the repo are FaceSketches-HairStyle40 plus the
+editorial scrape written under `data/raw/scraped/`. Optional preprocessing via
+`src/preprocess/hair_crop.py` uses OpenCV, not MediaPipe.

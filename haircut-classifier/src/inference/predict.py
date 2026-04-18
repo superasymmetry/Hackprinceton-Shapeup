@@ -28,6 +28,7 @@ from src.config import (
     CHECKPOINTS_DIR,
     HARD_NEGATIVES_JSON,
     PROMPTS_JSON,
+    ROOT,
     TAXONOMY_JSON,
     ServingConfig,
 )
@@ -103,7 +104,7 @@ class Classifier:
             CHECKPOINTS_DIR / "fine_tune_latest.pt"
         )
         if not ckpt_path.is_absolute():
-            ckpt_path = Path.cwd() / ckpt_path
+            ckpt_path = ROOT / ckpt_path
         if not ckpt_path.exists():
             return
         try:
@@ -123,15 +124,46 @@ class Classifier:
         if "ambiguous_threshold" in ckpt:
             self.cfg.ambiguous_threshold = float(ckpt["ambiguous_threshold"])
 
-    def _topk_from_sims(self, sims: torch.Tensor) -> list[tuple[str, float]]:
-        """sims: (num_styles,) cosine similarities in [-1, 1]."""
-        logits = sims / self.temperature
-        probs = F.softmax(logits * 100.0, dim=-1)  # scale like CLIP
+    def _probs_from_sims(self, sims: torch.Tensor) -> torch.Tensor:
+        logits = sims / max(self.temperature, 1e-6)
+        return F.softmax(logits * 100.0, dim=-1)  # scale like CLIP
+
+    def _topk_from_probs(self, probs: torch.Tensor) -> list[tuple[str, float]]:
         topk = torch.topk(probs, k=self.cfg.top_k)
         return [
             (self.prototypes.style_ids[i.item()], float(p.item()))
             for p, i in zip(topk.values, topk.indices)
         ]
+
+    def _result_from_probs(self, probs: torch.Tensor) -> dict:
+        topk = self._topk_from_probs(probs)
+        top1_sid, top1_conf = self._dispatch_confidence(topk)
+        return {
+            "top1_style_id": top1_sid,
+            "top1_confidence": top1_conf,
+            "topk": [[sid, conf] for sid, conf in topk],
+        }
+
+    def _probs_payload(
+        self, probs: torch.Tensor, sims: torch.Tensor | None = None
+    ) -> dict:
+        if sims is None:
+            sims = probs
+        return {
+            "style_ids": self.prototypes.style_ids,
+            "probs": [float(p) for p in probs.detach().cpu().tolist()],
+            "sims": [float(s) for s in sims.detach().cpu().tolist()],
+            "temperature": float(self.temperature),
+            "confident_threshold": float(self.cfg.confident_threshold),
+            "ambiguous_threshold": float(self.cfg.ambiguous_threshold),
+        }
+
+    @torch.inference_mode()
+    def classify_batch_tensors(self, images: torch.Tensor) -> torch.Tensor:
+        feats = self.backbone.model.encode_image(images.to(self.backbone.device))
+        feats = F.normalize(feats, dim=-1)
+        sims = feats @ self.prototypes.embeddings.T
+        return self._probs_from_sims(sims)
 
     def _dispatch_confidence(
         self, topk: list[tuple[str, float]]
@@ -149,25 +181,22 @@ class Classifier:
     def classify_image(self, image: Image.Image) -> dict:
         img_feat = encode_images(self.backbone, [image.convert("RGB")])  # (1, d)
         sims = (img_feat @ self.prototypes.embeddings.T).squeeze(0)
-        topk = self._topk_from_sims(sims)
-        top1_sid, top1_conf = self._dispatch_confidence(topk)
-        return {
-            "top1_style_id": top1_sid,
-            "top1_confidence": top1_conf,
-            "topk": [[sid, conf] for sid, conf in topk],
-        }
+        probs = self._probs_from_sims(sims)
+        return self._result_from_probs(probs)
+
+    @torch.inference_mode()
+    def classify_image_probs(self, image: Image.Image) -> dict:
+        img_feat = encode_images(self.backbone, [image.convert("RGB")])  # (1, d)
+        sims = (img_feat @ self.prototypes.embeddings.T).squeeze(0)
+        probs = self._probs_from_sims(sims)
+        return self._probs_payload(probs, sims=sims)
 
     @torch.inference_mode()
     def classify_text(self, prompt: str) -> dict:
         feat = encode_texts(self.backbone, [prompt])  # (1, d)
         sims = (feat @ self.prototypes.embeddings.T).squeeze(0)
-        topk = self._topk_from_sims(sims)
-        top1_sid, top1_conf = self._dispatch_confidence(topk)
-        return {
-            "top1_style_id": top1_sid,
-            "top1_confidence": top1_conf,
-            "topk": [[sid, conf] for sid, conf in topk],
-        }
+        probs = self._probs_from_sims(sims)
+        return self._result_from_probs(probs)
 
 
 _SINGLETON: Classifier | None = None

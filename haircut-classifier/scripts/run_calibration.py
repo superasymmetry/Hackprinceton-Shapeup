@@ -6,17 +6,15 @@ import sys
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.config import CHECKPOINTS_DIR, REPORTS_DIR, TrainConfig  # noqa: E402
+from src.config import CHECKPOINTS_DIR, REPORTS_DIR  # noqa: E402
 from src.data.dataset import HaircutDataset  # noqa: E402
 from src.eval.calibration import learn_temperature, pick_thresholds  # noqa: E402
-from src.models.backbone import load_backbone  # noqa: E402
-from src.models.classifier import HaircutClassifier  # noqa: E402
+from src.inference.predict import Classifier  # noqa: E402
 
 
 def main() -> None:
@@ -25,29 +23,22 @@ def main() -> None:
         print(f"missing {ckpt_path}; run fine-tune first.")
         sys.exit(1)
     ckpt = torch.load(ckpt_path, map_location="cpu")
-    cfg = TrainConfig(**ckpt["cfg"])
+    clf = Classifier()
+    clf.temperature = 1.0
 
-    backbone = load_backbone(name=cfg.backbone, pretrained=cfg.pretrained)
-    val_ds = HaircutDataset("val", backbone.preprocess, sample_prompt=False)
-    num_classes = len(val_ds.style_ids)
-    model = HaircutClassifier(backbone, num_classes=num_classes).to(backbone.device)
-    model.backbone.model.load_state_dict(ckpt["backbone_fine_tuned"])
-    model.head.load_state_dict(ckpt["head_state"])
-    model.eval()
-
+    val_ds = HaircutDataset("val", clf.backbone.preprocess, sample_prompt=False)
     loader = DataLoader(val_ds, batch_size=128, num_workers=2)
-    logits_all, labels_all = [], []
+    probs_all, labels_all = [], []
     with torch.no_grad():
         for imgs, ys, _ in loader:
-            imgs = imgs.to(backbone.device)
-            logits, _ = model(imgs)
-            logits_all.append(logits.cpu())
+            probs_all.append(clf.classify_batch_tensors(imgs).cpu())
             labels_all.append(ys)
-    logits = torch.cat(logits_all)
+    probs = torch.cat(probs_all)
     labels = torch.cat(labels_all)
+    logits = (probs.clamp(min=1e-12)).log()
 
     T = learn_temperature(logits, labels)
-    probs = F.softmax(logits / T, dim=-1)
+    probs = torch.softmax(logits / T, dim=-1)
     conf_thr, amb_thr = pick_thresholds(probs, labels)
     print(f"[calibration] T={T:.3f} confident={conf_thr:.3f} ambiguous={amb_thr:.3f}")
 
