@@ -336,13 +336,15 @@ function Scene({ showPolycam = false, showSplat = true, showFlame = false, visib
 // ── Public component ────────────────────────────────────────
 
 interface HairSceneProps {
-  params:     HairParams;
-  colorRGB?:  string;
-  profile?:   UserHeadProfile;
-  flameData?: FlameData;
+  params:                HairParams;
+  colorRGB?:             string;
+  profile?:              UserHeadProfile;
+  flameData?:            FlameData;
+  autoFaceliftDataUrl?:  string;
+  faceliftPlyReady?:     boolean;
 }
 
-export default function HairScene({ params: _params, colorRGB: _colorRGB, profile: _profile, flameData }: HairSceneProps) {
+export default function HairScene({ params: _params, colorRGB: _colorRGB, profile: _profile, flameData, autoFaceliftDataUrl, faceliftPlyReady }: HairSceneProps) {
   const [showPolycam, setShowPolycam] = useState(false);
   const [showSplat, setShowSplat]     = useState(true);
   const [showFlame, setShowFlame]     = useState(false);
@@ -358,8 +360,39 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
   const [ethanJobId, setEthanJobId]       = useState<string | null>(null);
   const [ethanJobStatus, setEthanJobStatus] = useState<'idle' | 'submitting' | 'processing' | 'done' | 'error'>('idle');
   const [ethanSplatSrc, setEthanSplatSrc] = useState<string | null>(null);
+  const [ethanPlySrc, setEthanPlySrc]     = useState<string | null>(null);
   // Gaussian-derived head bounds used for crown-to-crown hair alignment.
   const [gaussianHeadBounds, setGaussianHeadBounds] = useState<GaussianHeadBounds | null>(null);
+
+  // Auto-submit FaceLift when a baldified image is passed in from the hair edit loop.
+  // If faceliftPlyReady is true, the ply+splat were already downloaded — skip re-submission.
+  useEffect(() => {
+    if (!autoFaceliftDataUrl || ethanJobStatus !== 'idle') return;
+    if (faceliftPlyReady) {
+      const t = Date.now();
+      setEthanSplatSrc(`/output.splat?t=${t}`);
+      setEthanPlySrc(`/output.ply?t=${t}`);
+      setEthanJobStatus('done');
+      return;
+    }
+    setEthanJobStatus('submitting');
+    fetch('/api/facelift', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageDataUrl: autoFaceliftDataUrl }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.jobId) {
+          setEthanJobId(data.jobId);
+          setEthanJobStatus('processing');
+        } else {
+          setEthanJobStatus('error');
+        }
+      })
+      .catch(() => setEthanJobStatus('error'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFaceliftDataUrl]);
 
   // Loads ethansample_bald.png (falls back to ethansample.png), fires FaceLift +
   // SMIRK in parallel.  FaceLift result becomes the active splat source; SMIRK
@@ -412,8 +445,7 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
     await Promise.all([smirkP, faceliftP]);
   }, [ethanJobStatus]);
 
-  // Poll FaceLift until the job finishes, then set the splat source URL.
-  // The URL ends in .ply so drei Splat detects the format automatically.
+  // Poll FaceLift until the job finishes, then set the splat + ply source URLs.
   useEffect(() => {
     if (ethanJobStatus !== 'processing' || !ethanJobId) return;
     const timer = setInterval(async () => {
@@ -422,7 +454,9 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
         const data = await res.json() as { status: string };
         if (data.status === 'success') {
           clearInterval(timer);
-          setEthanSplatSrc(`/api/facelift/${ethanJobId}/gaussians.ply`);
+          const t = Date.now();
+          setEthanSplatSrc(`/output.splat?t=${t}`);
+          setEthanPlySrc(`/output.ply?t=${t}`);
           setEthanJobStatus('done');
         } else if (data.status === 'error') {
           clearInterval(timer);
@@ -443,9 +477,9 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
   }, [flameData, localFlameData]);
 
   useEffect(() => {
-    if (!ethanSplatSrc || !splatTransformRef) return;
+    if (!ethanPlySrc || !splatTransformRef) return;
     let cancelled = false;
-    parseGaussianXYZ(ethanSplatSrc, 20)
+    parseGaussianXYZ(ethanPlySrc, 20)
       .then(centers => {
         if (cancelled || centers.length === 0) return;
         const bounds = computeHeadBoundsFromGaussians(
@@ -458,7 +492,7 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
       })
       .catch(e => console.warn('[HairScene] gaussian parse failed', e));
     return () => { cancelled = true; };
-  }, [ethanSplatSrc, splatTransformRef]);
+  }, [ethanPlySrc, splatTransformRef]);
 
   // Prop flameData (from real webcam scan) takes priority over test data
   const effectiveFlameData = flameData ?? localFlameData ?? undefined;
