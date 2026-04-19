@@ -6,7 +6,7 @@ import { UserHeadProfile } from '@/types';
 
 interface ScanCameraProps {
   hairType: 'straight' | 'wavy' | 'curly';
-  onScanComplete: (profile: UserHeadProfile) => void;
+  onScanComplete: (profile: UserHeadProfile, sessionId: string | null, imageUrl: string | null) => void;
   onDismiss: () => void;
 }
 
@@ -113,7 +113,7 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
     ctx.drawImage(video, cropX, cropY, cropSize, cropSize, 0, 0, W, H);
     ctx.restore();
 
-    const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    const imageDataUrl = canvas.toDataURL('image/png');
 
     drawOverlay(ctx, W, H, true);
 
@@ -121,12 +121,6 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
     stream?.getTracks().forEach(t => t.stop());
 
     setPhase('captured');
-
-    fetch('/api/save-scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageDataUrl }),
-    });
 
     const profile: UserHeadProfile = {
       headProportions: { width: 1.6, height: 2.0, crownY: 1.0 },
@@ -150,11 +144,27 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
         preset:    'default',
         hairType,
         colorRGB:  '#3b1f0a',
-        params:    { topLength: 1, sideLength: 1, backLength: 1, messiness: 0, taper: 0.5 },
+        params:    { topLength: 1, sideLength: 1, backLength: 1, messiness: 0, taper: 0.5, pc1: 0, pc2: 0, pc3: 0, pc4: 0, pc5: 0, pc6: 0 },
       },
     };
 
-    onScanComplete(profile);
+    // Upload to Firebase and get session info before completing
+    let sessionId: string | null = null;
+    let uploadedImageUrl: string | null = null;
+    try {
+      const res = await fetch('/api/save-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageDataUrl }),
+      });
+      const data = await res.json();
+      sessionId = data.sessionId ?? null;
+      uploadedImageUrl = data.downloadUrl ?? null;
+    } catch {
+      // Non-fatal — proceed without session
+    }
+
+    onScanComplete(profile, sessionId, uploadedImageUrl);
   }
 
   const instruction =

@@ -43,7 +43,7 @@ def inpaint_hair(image_path: str, output_path: str, device: torch.device | None 
     mime_type = "image/png" if image_path.lower().endswith(".png") else "image/jpeg"
 
     response = client.models.generate_content(
-        model="gemini-2.0-flash-exp-image-generation",
+        model="gemini-2.5-flash-image",
         contents=[
             types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
             PROMPT,
