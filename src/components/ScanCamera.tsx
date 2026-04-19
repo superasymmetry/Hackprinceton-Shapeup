@@ -160,8 +160,9 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
       const data = await res.json();
       sessionId = data.sessionId ?? null;
       uploadedImageUrl = data.downloadUrl ?? null;
-    } catch {
-      // Non-fatal — proceed without session
+      console.log('[ScanCamera] save-scan response — sessionId:', sessionId);
+    } catch (err) {
+      console.error('[ScanCamera] save-scan request failed (non-fatal):', err);
     }
 
     onScanComplete(profile, sessionId, uploadedImageUrl);

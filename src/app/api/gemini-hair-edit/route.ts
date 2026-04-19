@@ -99,13 +99,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Firebase Storage upload failed', detail: String(err) }, { status: 500 });
   }
 
-  // Append to session's images array in Firestore
+  // Append to session's images array + null placeholder to ply_objects
   try {
-    console.log('[gemini-hair-edit] appending URL to Firestore session:', sessionId);
+    console.log('[gemini-hair-edit] appending newImageUrl to images + null to ply_objects — sessionId:', sessionId);
     await updateDoc(doc(db, 'session', sessionId), {
-      images: arrayUnion(newImageUrl),
+      images:      arrayUnion(newImageUrl),
+      ply_objects: arrayUnion(null),
     });
-    console.log('[gemini-hair-edit] Firestore updated successfully');
+    console.log('[gemini-hair-edit] Firestore updated — images + ply_objects each got new entry');
   } catch (err) {
     console.error('[gemini-hair-edit] Firestore update failed (non-fatal):', err);
   }

@@ -18,8 +18,8 @@ export default function Home() {
   const [appState, setAppState] = useState<AppState>('scan');
   const [profile, setProfile]   = useState<UserHeadProfile | null>(null);
   const [params,  setParams]    = useState<HairParams>(mockUserHeadProfile.currentStyle.params);
-  const [sessionId, setSessionId]   = useState<string | null>(null);
-  const [imageUrl,  setImageUrl]    = useState<string | null>(null);
+  const [sessionId,   setSessionId]   = useState<string | null>(null);
+  const [imageUrl,    setImageUrl]    = useState<string | null>(null);
 
   const smirk = useSmirk(profile?.faceScanData?.imageDataUrl);
 
@@ -29,6 +29,7 @@ export default function Home() {
   };
 
   const handleScanComplete = (p: UserHeadProfile, sid: string | null, url: string | null) => {
+    console.log('[page] handleScanComplete — sid:', sid, '| url:', url?.slice(0, 60));
     setProfile(p);
     setParams(p.currentStyle.params);
     if (sid && url) {

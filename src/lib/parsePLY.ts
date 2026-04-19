@@ -131,6 +131,79 @@ export async function parseGaussianXYZ(
   return out;
 }
 
+/**
+ * Parses a 3D Gaussian Splatting PLY and returns a BufferGeometry with
+ * per-vertex colors derived from the DC spherical-harmonics coefficients
+ * (f_dc_0/1/2). Every Nth gaussian is sampled for performance.
+ */
+export async function parseGaussianWithColors(
+  url: string,
+  step = 20,
+): Promise<THREE.BufferGeometry> {
+  const buf = await fetch(url).then(r => r.arrayBuffer());
+  const bytes = new Uint8Array(buf);
+
+  const marker = 'end_header\n';
+  let dataStart = 0;
+  for (let i = 0; i < bytes.length - marker.length; i++) {
+    let match = true;
+    for (let j = 0; j < marker.length; j++) {
+      if (bytes[i + j] !== marker.charCodeAt(j)) { match = false; break; }
+    }
+    if (match) { dataStart = i + marker.length; break; }
+  }
+
+  const header = new TextDecoder().decode(buf.slice(0, dataStart));
+  const vertexCountMatch = header.match(/element vertex (\d+)/);
+  if (!vertexCountMatch) return new THREE.BufferGeometry();
+  const vertexCount = parseInt(vertexCountMatch[1]);
+
+  const propLines = [...header.matchAll(/^property (\S+) (\S+)$/gm)];
+  let stride = 0;
+  let xOff = -1, yOff = -1, zOff = -1;
+  let r0Off = -1, r1Off = -1, r2Off = -1;
+  for (const [, type, name] of propLines) {
+    const size = PLY_TYPE_SIZES[type] ?? 4;
+    if (name === 'x')      xOff  = stride;
+    else if (name === 'y') yOff  = stride;
+    else if (name === 'z') zOff  = stride;
+    else if (name === 'f_dc_0') r0Off = stride;
+    else if (name === 'f_dc_1') r1Off = stride;
+    else if (name === 'f_dc_2') r2Off = stride;
+    stride += size;
+  }
+  if (xOff < 0 || yOff < 0 || zOff < 0 || stride === 0) return new THREE.BufferGeometry();
+
+  const hasColor = r0Off >= 0 && r1Off >= 0 && r2Off >= 0;
+  const SH_C0 = 0.28209479177387814;
+
+  const sampledCount = Math.ceil(vertexCount / step);
+  const positions = new Float32Array(sampledCount * 3);
+  const colors    = new Float32Array(sampledCount * 3);
+
+  const view = new DataView(buf, dataStart);
+  let idx = 0;
+  for (let i = 0; i < vertexCount; i += step) {
+    const base = i * stride;
+    positions[idx * 3]     = view.getFloat32(base + xOff, true);
+    positions[idx * 3 + 1] = view.getFloat32(base + yOff, true);
+    positions[idx * 3 + 2] = view.getFloat32(base + zOff, true);
+    if (hasColor) {
+      colors[idx * 3]     = Math.max(0, Math.min(1, 0.5 + SH_C0 * view.getFloat32(base + r0Off, true)));
+      colors[idx * 3 + 1] = Math.max(0, Math.min(1, 0.5 + SH_C0 * view.getFloat32(base + r1Off, true)));
+      colors[idx * 3 + 2] = Math.max(0, Math.min(1, 0.5 + SH_C0 * view.getFloat32(base + r2Off, true)));
+    } else {
+      colors[idx * 3] = 0.7; colors[idx * 3 + 1] = 0.7; colors[idx * 3 + 2] = 0.7;
+    }
+    idx++;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+
 export async function parsePLYWithBBox(url: string): Promise<PLYResult> {
   const buf = await fetch(url).then(r => r.arrayBuffer());
   const headerBytes = new Uint8Array(buf);

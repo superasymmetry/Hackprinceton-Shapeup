@@ -40,12 +40,11 @@ export async function POST(req: NextRequest) {
 
   let downloadUrl: string | null = null;
   let sessionId: string | null = null;
-
-  // Generate a session ID first so we can use it in the storage path
   let pendingSessionId: string | null = null;
   try {
     const sessionRef = await addDoc(collection(db, 'session'), { createdAt: serverTimestamp() });
     pendingSessionId = sessionRef.id;
+    console.log('[save-scan] Firestore session pre-created — pendingSessionId:', pendingSessionId);
   } catch (err) {
     console.error('[save-scan] Firestore pre-create failed (non-fatal):', err);
     pendingSessionId = `local_${Date.now()}`;
@@ -53,10 +52,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const storageRef = ref(storage, `scans/${pendingSessionId}/scan_${Date.now()}.png`);
-    console.log('[save-scan] uploading to Firebase Storage...');
+    console.log('[save-scan] uploading scan image to Firebase Storage...');
     const snapshot = await uploadBytes(storageRef, buffer, { contentType: 'image/png' });
     downloadUrl = await getDownloadURL(snapshot.ref);
-    console.log('[save-scan] uploaded, downloadUrl:', downloadUrl);
+    console.log('[save-scan] scan uploaded — downloadUrl:', downloadUrl);
   } catch (err) {
     console.error('[save-scan] Firebase Storage upload failed (non-fatal):', err);
   }
@@ -64,11 +63,13 @@ export async function POST(req: NextRequest) {
   if (downloadUrl && pendingSessionId && !pendingSessionId.startsWith('local_')) {
     try {
       const { doc, updateDoc, arrayUnion } = await import('firebase/firestore');
+      console.log('[save-scan] writing Firestore session — images:[url], ply_objects:[null]');
       await updateDoc(doc(db, 'session', pendingSessionId), {
-        images: arrayUnion(downloadUrl),
+        images:      arrayUnion(downloadUrl),
+        ply_objects: [null],
       });
       sessionId = pendingSessionId;
-      console.log('[save-scan] Firestore doc updated with images array, id:', sessionId);
+      console.log('[save-scan] Firestore doc fully initialized — sessionId:', sessionId);
     } catch (err) {
       console.error('[save-scan] Firestore update failed (non-fatal):', err);
       sessionId = pendingSessionId;
@@ -77,6 +78,6 @@ export async function POST(req: NextRequest) {
     sessionId = pendingSessionId;
   }
 
-  console.log('[save-scan] done — sessionId:', sessionId, 'downloadUrl:', downloadUrl);
+  console.log('[save-scan] done — sessionId:', sessionId, '| downloadUrl:', downloadUrl);
   return NextResponse.json({ ok: true, sessionId, downloadUrl });
 }
