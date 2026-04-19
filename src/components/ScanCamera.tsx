@@ -8,6 +8,7 @@ interface ScanCameraProps {
   hairType: 'straight' | 'wavy' | 'curly';
   onScanComplete: (profile: UserHeadProfile, sessionId: string | null, imageUrl: string | null) => void;
   onDismiss: () => void;
+  onCapturing?: () => void;
 }
 
 type Phase = 'loading' | 'ready' | 'captured' | 'error';
@@ -25,7 +26,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, W: number, H: number, captur
   ctx.stroke();
 }
 
-export default function ScanCamera({ hairType, onScanComplete, onDismiss }: ScanCameraProps) {
+export default function ScanCamera({ hairType, onScanComplete, onDismiss, onCapturing }: ScanCameraProps) {
   const videoRef      = useRef<HTMLVideoElement>(null);
   const previewCanvas = useRef<HTMLCanvasElement>(null);
   const animFrameId   = useRef<number | null>(null);
@@ -121,6 +122,7 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
     stream?.getTracks().forEach(t => t.stop());
 
     setPhase('captured');
+    onCapturing?.();
 
     const profile: UserHeadProfile = {
       headProportions: { width: 1.6, height: 2.0, crownY: 1.0 },

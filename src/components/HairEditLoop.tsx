@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
-import { useBarberConversation } from '@/hooks/useBarberConversation';
+import { useBarberConversation, StyleSuggestion } from '@/hooks/useBarberConversation';
 import { useWaitingBarber } from '@/hooks/useWaitingBarber';
 
 interface HairEditLoopProps {
@@ -17,6 +17,7 @@ export default function HairEditLoop({ sessionId, initialImageUrl, onRenderIn3D 
   const [isLoading, setIsLoading] = useState(false);
   const [isBaldifying, setIsBaldifying] = useState(false);
   const [faceliftStatus, setFaceliftStatus] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<StyleSuggestion | null>(null);
 
   const handleConversationEnd = useCallback(async (transcript: string) => {
     console.log('[BarberVoice] handleConversationEnd called with transcript:', transcript);
@@ -38,7 +39,7 @@ export default function HairEditLoop({ sessionId, initialImageUrl, onRenderIn3D 
     }
   }, []);
 
-  const barber        = useBarberConversation(handleConversationEnd);
+  const barber        = useBarberConversation(handleConversationEnd, setSuggestion);
   const waitingBarber = useWaitingBarber();
 
   useEffect(() => {
@@ -116,7 +117,7 @@ export default function HairEditLoop({ sessionId, initialImageUrl, onRenderIn3D 
         if (pollData.status === 'error') throw new Error(pollData.error ?? 'Facelift job failed');
       }
 
-      waitingBarber.stop();
+      await waitingBarber.finish();
       onRenderIn3D(baldData.baldifiedDataUrl);
     } catch (err) {
       waitingBarber.stop();
@@ -167,6 +168,30 @@ export default function HairEditLoop({ sessionId, initialImageUrl, onRenderIn3D 
           </div>
         )}
 
+        {suggestion && (
+          <div className="w-full rounded-xl bg-gray-900 border border-gray-700 px-4 py-3 flex items-start gap-3">
+            <span className="text-lg mt-0.5">✂️</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-400 mb-0.5">Leo suggests</p>
+              <p className="text-sm text-white leading-snug">{suggestion.label}</p>
+              <a
+                href={`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(suggestion.searchQuery)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block"
+              >
+                View examples →
+              </a>
+            </div>
+            <button
+              onClick={() => setSuggestion(null)}
+              className="text-gray-600 hover:text-gray-400 text-xs mt-0.5 flex-shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         <textarea
           className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 resize-none focus:outline-none focus:border-gray-500 transition-colors"
           rows={3}
@@ -191,7 +216,7 @@ export default function HairEditLoop({ sessionId, initialImageUrl, onRenderIn3D 
             disabled={isLoading || isBaldifying}
             className="flex-1 bg-gray-800 text-white font-semibold rounded-xl px-4 py-3 text-sm hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {isBaldifying ? (faceliftStatus ?? 'Processing…') : 'Render in 3D'}
+            {isBaldifying ? (faceliftStatus ?? 'Processing…') : 'Check In'}
           </button>
         </div>
       </div>

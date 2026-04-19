@@ -7,6 +7,7 @@ import HairEditLoop from '@/components/HairEditLoop';
 import dynamic from 'next/dynamic';
 import { mockUserHeadProfile } from '@/data/mockProfile';
 import { useSmirk } from '@/hooks/useSmirk';
+import { useWaitingBarber } from '@/hooks/useWaitingBarber';
 import { useState } from 'react';
 
 const HairScene  = dynamic(() => import('@/components/HairScene'),  { ssr: false });
@@ -23,7 +24,8 @@ export default function Home() {
   const [baldifiedDataUrl, setBaldifiedDataUrl] = useState<string | null>(null);
   const [faceliftPlyReady, setFaceliftPlyReady] = useState(false);
 
-  const smirk = useSmirk(profile?.faceScanData?.imageDataUrl);
+  const smirk         = useSmirk(profile?.faceScanData?.imageDataUrl);
+  const waitingBarber = useWaitingBarber();
 
   const handleParamsChange = (next: HairParams) => {
     setParams(next);
@@ -31,6 +33,7 @@ export default function Home() {
   };
 
   const handleScanComplete = (p: UserHeadProfile, sid: string | null, url: string | null) => {
+    waitingBarber.stop();
     setProfile(p);
     setParams(p.currentStyle.params);
     if (sid && url) {
@@ -38,7 +41,6 @@ export default function Home() {
       setImageUrl(url);
       setAppState('hairEditLoop');
     } else {
-      // Fallback: no Firebase session — go straight to 3D
       setAppState('3d');
     }
   };
@@ -50,6 +52,7 @@ export default function Home() {
           <ScanCamera
             hairType="straight"
             onScanComplete={handleScanComplete}
+            onCapturing={() => waitingBarber.startGreeting()}
             onDismiss={() => {
               setProfile(mockUserHeadProfile);
               setAppState('3d');

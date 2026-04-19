@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
+    "@elevenlabs/client": "^1.2.1",
     "@elevenlabs/elevenlabs-js": "^2.43.0",
     "@google/generative-ai": "^0.24.1",
     "@react-three/drei": "^10.7.7",

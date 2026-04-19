@@ -19,33 +19,57 @@ HUMAN IMPERFECTIONS (USE SPARINGLY BUT NATURALLY):
 
 STRICT RULES:
 - Never use asterisks, markdown, or formatting. Speak in plain conversational sentences only.
-- Never say more than 2-3 sentences. Seriously.`;
+- The "reply" field is the ONLY thing spoken aloud. Keep it under 2-3 sentences. Seriously.`;
+
+function buildConsultationInstruction(notes: Record<string, unknown>): string {
+  const notesJson = Object.keys(notes).length > 0
+    ? JSON.stringify(notes, null, 2)
+    : 'None yet.';
+
+  return '[CONSULTATION] Your goal is to figure out what haircut the client wants while naturally learning who they are.\n\n'
+    + 'CONVERSATION BEHAVIOR:\n'
+    + '- Listen to their request. If it sounds complete, acknowledge cleanly.\n'
+    + '- ONLY ask a follow-up question if a truly critical detail is missing (fade type, guard number, length on top, texture).\n'
+    + '- Pay attention to personal details the client reveals (name, job, lifestyle, personality, upcoming events). Weave this into conversation naturally.\n'
+    + '- When it fits naturally (NOT every turn), suggest a specific style or celebrity reference that matches what they describe. Keep it casual.\n'
+    + '- If the client asks what you think they should get, give an honest opinion based on what you know about them.\n\n'
+    + 'PREVIOUSLY KNOWN CLIENT NOTES:\n'
+    + notesJson + '\n\n'
+    + 'Respond with a JSON object with EXACTLY these fields:\n'
+    + '- "reply": string — what you say aloud. Plain text only, 1-3 sentences max.\n'
+    + '- "done": boolean — true if the client is clearly finished describing their cut.\n'
+    + '- "notes": object — updated client profile (name, vibe, lifestyle array, preferences array, mentions array). Only include fields you have real info for.\n'
+    + '- "suggestion": object or null — only when naturally suggesting a style this turn. Fields: "label" (what you say, e.g. "something like a Timothee Chalamet curtain bang"), "searchQuery" (image search string). Null otherwise.';
+}
 
 const STATE_INSTRUCTIONS: Record<string, string> = {
-  CONSULTATION: `[CONSULTATION] Your goal is to figure out what haircut the client wants. Listen to their request — if it sounds complete, just acknowledge it cleanly. ONLY ask a follow-up question if a truly critical detail is missing (fade type, guard number, length on top). Do NOT make small talk. Focus purely on the cut. Never hallucinate preferences.
-
-You must respond with a JSON object with exactly two fields:
-- "reply": your spoken response as a plain string (no markdown, 1-3 sentences max)
-- "done": boolean — true if the client has clearly indicated they are finished describing their cut (e.g. said "that's all", "I think that's it", "we're good", "thank you", conveyed satisfaction, or you have enough to proceed). False if you still need more info or the client seems to want to keep talking.`,
-  GENERATING_HAIRCUT: `[GENERATING_HAIRCUT] The clippers are buzzing and you're working. Make one brief, casual observation or ask a low-key question — about Princeton, your dog Mac, sneakers, or something the client mentioned earlier. Keep it irregular: sometimes just make an observation, don't always ask a question. If context suggests the client is short or unengaged, just make a neutral comment about the cut instead.`,
-  FINISHED: `[FINISHED] The cut is done. Say one brief line inviting the client to check out the result — something like "Alright, take a look. How's that feel?" or a natural variation. Keep it short and real.`,
+  GENERATING_HAIRCUT: '[GENERATING_HAIRCUT] The clippers are buzzing. Make one brief casual observation or low-key question about Princeton, your dog Mac, sneakers, or something the client mentioned. Keep it irregular — sometimes just observe, do not always ask a question. If the client seemed unengaged, just make a neutral comment about the cut.',
+  FINISHED: '[FINISHED] The cut is done. Say one brief line inviting the client to check out the result. Keep it short and real.',
 };
 
 export async function POST(req: NextRequest) {
-  const { history, state } = await req.json() as {
-    history: { role: string; content: string }[];
-    state: 'CONSULTATION' | 'GENERATING_HAIRCUT' | 'FINISHED';
-  };
-
-  const stateInstruction = STATE_INSTRUCTIONS[state] ?? STATE_INSTRUCTIONS.CONSULTATION;
-
-  const messages = [
-    { role: 'system', content: `${LEO_SYSTEM}\n\n${stateInstruction}` },
-    ...history,
-  ];
-
   try {
-    const response = await fetch(GEMINI_API_URL, {
+    const body = await req.json();
+    const history: { role: string; content: string }[] = body.history ?? [];
+    const state: 'CONSULTATION' | 'GENERATING_HAIRCUT' | 'FINISHED' = body.state ?? 'CONSULTATION';
+    const notes: Record<string, unknown> = body.notes ?? {};
+
+    console.log(`[leo-chat] state=${state} history_len=${history.length} notes_keys=${Object.keys(notes).join(',')}`);
+
+    const stateInstruction = state === 'CONSULTATION'
+      ? buildConsultationInstruction(notes)
+      : STATE_INSTRUCTIONS[state] ?? STATE_INSTRUCTIONS.FINISHED;
+
+    const notesContext = state !== 'CONSULTATION' && Object.keys(notes).length > 0
+      ? '\n\nCLIENT NOTES (use to personalize):\n' + JSON.stringify(notes, null, 2)
+      : '';
+
+    const messages = [
+      { role: 'system', content: LEO_SYSTEM + '\n\n' + stateInstruction + notesContext },
+      ...history,
+    ];
+
+    const geminiRes = await fetch(GEMINI_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -54,37 +78,47 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: 'gemini-2.5-flash-preview-05-20',
         messages,
-        max_tokens: 150,
+        max_tokens: state === 'CONSULTATION' ? 800 : 150,
         temperature: 0.9,
-        ...(state === 'CONSULTATION' && { response_format: { type: 'json_object' } }),
       }),
     });
 
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('[leo-chat] Gemini error:', err);
-      return NextResponse.json({ error: 'LLM request failed' }, { status: 500 });
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      console.error('[leo-chat] Gemini error:', geminiRes.status, errText);
+      return NextResponse.json({ error: 'Gemini request failed', details: errText }, { status: 502 });
     }
 
-    const data = await response.json();
-    const raw: string = data.choices[0].message.content;
+    const geminiData = await geminiRes.json();
+    const raw: string = geminiData.choices?.[0]?.message?.content ?? '';
+
+    console.log(`[leo-chat][${state}] raw response (first 200): ${raw.slice(0, 200)}`);
 
     if (state === 'CONSULTATION') {
+      // Strip markdown code fences if the model wrapped JSON in ```json ... ```
+      const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
       try {
-        const parsed = JSON.parse(raw) as { reply: string; done: boolean };
-        console.log(`[leo-chat][CONSULTATION] reply="${parsed.reply}" done=${parsed.done}`);
-        return NextResponse.json({ reply: parsed.reply, done: parsed.done ?? false });
-      } catch {
-        // If JSON parsing fails, treat the raw text as the reply and don't mark done
-        console.warn('[leo-chat] Failed to parse CONSULTATION JSON, falling back to raw text');
-        return NextResponse.json({ reply: raw, done: false });
+        const parsed = JSON.parse(cleaned) as {
+          reply?: string;
+          done?: boolean;
+          notes?: Record<string, unknown>;
+          suggestion?: { label: string; searchQuery: string } | null;
+        };
+        return NextResponse.json({
+          reply:      parsed.reply      ?? null,
+          done:       parsed.done       ?? false,
+          notes:      parsed.notes      ?? {},
+          suggestion: parsed.suggestion ?? null,
+        });
+      } catch (parseErr) {
+        console.warn('[leo-chat] JSON parse failed, returning raw as reply. raw:', cleaned.slice(0, 300));
+        return NextResponse.json({ reply: raw, done: false, notes: {}, suggestion: null });
       }
     }
 
-    console.log(`[leo-chat][${state}] reply:`, raw);
     return NextResponse.json({ reply: raw });
   } catch (err) {
-    console.error('[leo-chat] Request failed:', err);
-    return NextResponse.json({ error: 'Leo response failed' }, { status: 500 });
+    console.error('[leo-chat] Unhandled route error:', err);
+    return NextResponse.json({ error: 'Route crashed', details: String(err) }, { status: 500 });
   }
 }
