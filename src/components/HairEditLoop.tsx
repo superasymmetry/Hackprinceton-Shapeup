@@ -6,12 +6,15 @@ import Image from 'next/image';
 interface HairEditLoopProps {
   sessionId: string;
   initialImageUrl: string;
+  onRenderIn3D: (baldifiedDataUrl: string) => void;
 }
 
-export default function HairEditLoop({ sessionId, initialImageUrl }: HairEditLoopProps) {
+export default function HairEditLoop({ sessionId, initialImageUrl, onRenderIn3D }: HairEditLoopProps) {
   const [currentImageUrl, setCurrentImageUrl] = useState(initialImageUrl);
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isBaldifying, setIsBaldifying] = useState(false);
+  const [faceliftStatus, setFaceliftStatus] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     if (!prompt.trim() || isLoading) return;
@@ -40,6 +43,50 @@ export default function HairEditLoop({ sessionId, initialImageUrl }: HairEditLoo
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
+    }
+  };
+
+  const handleRenderIn3D = async () => {
+    if (isBaldifying || isLoading) return;
+    setIsBaldifying(true);
+    setFaceliftStatus('Baldifying…');
+    try {
+      // Step 1: baldify
+      const baldRes = await fetch('/api/baldify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: currentImageUrl }),
+      });
+      const baldData = await baldRes.json();
+      if (!baldData.baldifiedDataUrl) throw new Error(baldData.error ?? 'No image returned');
+
+      // Step 2: submit facelift job
+      setFaceliftStatus('Submitting 3D job…');
+      const submitRes = await fetch('/api/facelift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageDataUrl: baldData.baldifiedDataUrl }),
+      });
+      const submitData = await submitRes.json();
+      if (!submitData.jobId) throw new Error(submitData.error ?? 'No job ID returned');
+
+      // Step 3: poll until done
+      setFaceliftStatus('Generating 3D model… (this takes ~2 min)');
+      const jobId = submitData.jobId;
+      while (true) {
+        await new Promise(r => setTimeout(r, 5000));
+        const pollRes = await fetch(`/api/facelift?jobId=${jobId}`);
+        const pollData = await pollRes.json();
+        if (pollData.status === 'success') break;
+        if (pollData.status === 'error') throw new Error(pollData.error ?? 'Facelift job failed');
+      }
+
+      onRenderIn3D(baldData.baldifiedDataUrl);
+    } catch (err) {
+      alert('Failed to render in 3D: ' + String(err));
+      setFaceliftStatus(null);
+    } finally {
+      setIsBaldifying(false);
     }
   };
 
@@ -84,11 +131,11 @@ export default function HairEditLoop({ sessionId, initialImageUrl }: HairEditLoo
           </button>
 
           <button
-            onClick={() => alert('Not Implemented Yet')}
-            disabled={isLoading}
+            onClick={handleRenderIn3D}
+            disabled={isLoading || isBaldifying}
             className="flex-1 bg-gray-800 text-white font-semibold rounded-xl px-4 py-3 text-sm hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            Render in 3D
+            {isBaldifying ? (faceliftStatus ?? 'Processing…') : 'Render in 3D'}
           </button>
         </div>
       </div>
