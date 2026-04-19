@@ -9,6 +9,7 @@
 
 'use client';
 
+import { buildCurrentProfilePayload } from '@/lib/llmPayload';
 import { useState, useCallback, useRef } from 'react';
 import { HairParams, UserHeadProfile } from '@/types';
 import { useLLM } from '@/hooks/useLLM';
@@ -33,6 +34,8 @@ export default function EditPanel({ profile, onParamsChange }: EditPanelProps) {
   const summaryRef = useRef<HTMLTextAreaElement>(null);
 
   const currentParams = history[historyIndex];
+  const liveMeasurementsJson = JSON.stringify(profile.measurementSnapshot ?? profile.hairMeasurements, null, 2);
+  const llmPayloadJson = JSON.stringify(buildCurrentProfilePayload(profile), null, 2);
 
   const pushParams = useCallback(
     (next: HairParams) => {
@@ -183,6 +186,24 @@ export default function EditPanel({ profile, onParamsChange }: EditPanelProps) {
             />
           </div>
         ))}
+      </div>
+
+      <div className="flex flex-col gap-2 pt-4 border-t border-gray-700">
+        <p className="text-xs text-gray-500 uppercase tracking-widest">Live Measurements</p>
+        <textarea
+          readOnly
+          value={liveMeasurementsJson}
+          className="bg-gray-800 rounded p-2 text-xs text-gray-200 resize-none h-40 focus:outline-none"
+        />
+      </div>
+
+      <div className="flex flex-col gap-2 pt-4 border-t border-gray-700">
+        <p className="text-xs text-gray-500 uppercase tracking-widest">LLM Payload</p>
+        <textarea
+          readOnly
+          value={llmPayloadJson}
+          className="bg-gray-800 rounded p-2 text-xs text-gray-200 resize-none h-56 focus:outline-none"
+        />
       </div>
 
       {/* Barber Summary */}

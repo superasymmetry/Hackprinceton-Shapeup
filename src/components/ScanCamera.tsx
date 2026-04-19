@@ -133,6 +133,8 @@ export default function ScanCamera({ hairType, onScanComplete, onDismiss }: Scan
         sideWidth:   0.2,
         backLength:  0.25,
         flatness:    0.5,
+        hairline:    0.28,
+        hairThickness: 0.16,
       },
       faceScanData: {
         landmarks:   [],

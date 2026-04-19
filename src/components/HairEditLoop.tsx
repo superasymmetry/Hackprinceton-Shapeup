@@ -7,9 +7,10 @@ interface HairEditLoopProps {
   sessionId: string;
   initialImageUrl: string;
   onRenderIn3D: (baldifiedDataUrl: string) => void;
+  onContinueTo3D: () => void;
 }
 
-export default function HairEditLoop({ sessionId, initialImageUrl, onRenderIn3D }: HairEditLoopProps) {
+export default function HairEditLoop({ sessionId, initialImageUrl, onRenderIn3D, onContinueTo3D }: HairEditLoopProps) {
   const [currentImageUrl, setCurrentImageUrl] = useState(initialImageUrl);
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -138,6 +139,15 @@ export default function HairEditLoop({ sessionId, initialImageUrl, onRenderIn3D 
             {isBaldifying ? (faceliftStatus ?? 'Processing…') : 'Render in 3D'}
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={onContinueTo3D}
+          disabled={isLoading || isBaldifying}
+          className="w-full bg-gray-900 text-gray-300 font-medium rounded-xl px-4 py-3 text-sm hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Continue to 3D without Gemini
+        </button>
       </div>
     </main>
   );

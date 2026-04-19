@@ -17,7 +17,7 @@
 
 import * as THREE from 'three';
 
-import { HairParams, UserHeadProfile } from '@/types';
+import { HairMeasurementBBox, HairParams, UserHeadProfile } from '@/types';
 import { OrbitControls, Splat, useGLTF } from '@react-three/drei';
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -150,6 +150,8 @@ const HAIR_LAYERS = [
   { type: 'npy', id: 'bruno_depth',  label: 'Bruno Depth', url: '/hair/brunohair_depth.npy', color: '#44aaff', lineWidth: 0, renderOrder: 0 },
 ] as const;
 
+type RawHairBBox = Omit<HairMeasurementBBox, 'width' | 'height' | 'depth'>;
+
 
 interface FlameData {
   vertices: number[][];
@@ -167,9 +169,10 @@ interface SceneProps {
   splatScale: number;
   splatPosY: number;
   splatSrc: string;
+  onPrimaryHairBBoxReady?: (bbox: RawHairBBox) => void;
 }
 
-function Scene({ showPolycam = false, showSplat = true, showFlame = false, visibleLayers, flameData, hairScale, hairPos, splatScale, splatPosY, splatSrc }: SceneProps) {
+function Scene({ showPolycam = false, showSplat = true, showFlame = false, visibleLayers, flameData, hairScale, hairPos, splatScale, splatPosY, splatSrc, onPrimaryHairBBoxReady }: SceneProps) {
   return (
     <>
       <ambientLight intensity={0.5} />
@@ -202,6 +205,7 @@ function Scene({ showPolycam = false, showSplat = true, showFlame = false, visib
             position={hairPos}
             lineWidth={l.lineWidth}
             renderOrder={l.renderOrder}
+            onBBoxReady={l.id === 'hair_modified' ? onPrimaryHairBBoxReady : undefined}
           />
         )
       )}
@@ -230,9 +234,10 @@ interface HairSceneProps {
   flameData?:            FlameData;
   autoFaceliftDataUrl?:  string;
   faceliftPlyReady?:     boolean;
+  onPrimaryHairBBoxReady?: (bbox: RawHairBBox) => void;
 }
 
-export default function HairScene({ params: _params, colorRGB: _colorRGB, profile: _profile, flameData, autoFaceliftDataUrl, faceliftPlyReady }: HairSceneProps) {
+export default function HairScene({ params: _params, colorRGB: _colorRGB, profile: _profile, flameData, autoFaceliftDataUrl, faceliftPlyReady, onPrimaryHairBBoxReady }: HairSceneProps) {
   const [showPolycam, setShowPolycam] = useState(false);
   const [showSplat, setShowSplat]     = useState(true);
   const [showFlame, setShowFlame]     = useState(false);
@@ -394,6 +399,7 @@ export default function HairScene({ params: _params, colorRGB: _colorRGB, profil
           splatScale={2.772}
           splatPosY={-0.07}
           splatSrc={effectiveSplatSrc}
+          onPrimaryHairBBoxReady={onPrimaryHairBBoxReady}
         />
       </Canvas>
       <div style={{ position: 'absolute', bottom: 12, left: 12, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '90%', zIndex: 10, pointerEvents: 'auto' }}>
