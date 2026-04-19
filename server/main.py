@@ -3,7 +3,7 @@ import requests
 import time
 
 # HairStep server (hair strand reconstruction)
-FACELIFT_URL  = "https://coconut-sublevel-pennant.ngrok-free.dev"
+FACELIFT_URL  = "https://oblivion-wriggly-landfill.ngrok-free.dev"
 
 ngrok_url = FACELIFT_URL  # swap to FACELIFT_URL to test FaceLift jobs
 image_path = r"C:\Users\stringbot\Documents\Github\HackPrinceton\public\baldified\brunobald_bald.png"
