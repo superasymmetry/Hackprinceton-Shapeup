@@ -20,6 +20,8 @@ export default function Home() {
   const [params,  setParams]    = useState<HairParams>(mockUserHeadProfile.currentStyle.params);
   const [sessionId, setSessionId]   = useState<string | null>(null);
   const [imageUrl,  setImageUrl]    = useState<string | null>(null);
+  const [baldifiedDataUrl, setBaldifiedDataUrl] = useState<string | null>(null);
+  const [faceliftPlyReady, setFaceliftPlyReady] = useState(false);
 
   const smirk = useSmirk(profile?.faceScanData?.imageDataUrl);
 
@@ -59,7 +61,17 @@ export default function Home() {
   }
 
   if (appState === 'hairEditLoop' && sessionId && imageUrl) {
-    return <HairEditLoop sessionId={sessionId} initialImageUrl={imageUrl} />;
+    return (
+      <HairEditLoop
+        sessionId={sessionId}
+        initialImageUrl={imageUrl}
+        onRenderIn3D={(dataUrl) => {
+          setBaldifiedDataUrl(dataUrl);
+          setFaceliftPlyReady(true);
+          setAppState('3d');
+        }}
+      />
+    );
   }
 
   // 3D scene fallback
@@ -70,6 +82,8 @@ export default function Home() {
           params={params}
           colorRGB={profile?.currentStyle.colorRGB ?? '#3b1f0a'}
           profile={profile ?? mockUserHeadProfile}
+          autoFaceliftDataUrl={baldifiedDataUrl ?? undefined}
+          faceliftPlyReady={faceliftPlyReady}
           flameData={
             smirk.result
               ? {

@@ -40,7 +40,7 @@ Write the barber instruction card now.`;
         Authorization: `Bearer ${process.env.GEMINI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-2.5-flash-image',
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: message },
