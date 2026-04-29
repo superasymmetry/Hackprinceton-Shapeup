@@ -2,8 +2,6 @@
 
 **Prompt-based 3D haircut simulator.** Scan your face, describe a style, and preview it on a photorealistic 3D model of your own head — before you sit down in the barber's chair.
 
-Built at HackPrinceton 2024 by repurposing three computer vision research pipelines and hacking together a near-zero-GPU rendering system.
-
 ---
 
 ## How It Works
@@ -33,15 +31,15 @@ iPhone camera / ARKit TrueDepth
 
 ### 1. Head Reconstruction — FaceLift
 
-A single photo is fed into **FaceLift**, which optimizes a set of 3D Gaussians to match the photo's appearance. The output is a `.splat` file — a binary-packed Gaussian splat representation of the user's head, rendered photorealistically in-browser via Three.js.
+A single photo is fed into **FaceLift**, which optimizes a set of 3D Gaussians to match the photo's appearance. The output (.ply) is converted into a `.splat` file — a binary-packed Gaussian splat representation of the user's head, rendered photorealistically in-browser via Three.js.
 
-To avoid redundant computation, the user's head is **baldified first via SMERK and cached**. All subsequent hair previews reuse the same bald head reconstruction, reducing N head generations (one per hairstyle) to a single generation.
+To avoid redundant computation, the user's head is **baldified first via Gemini Nano Banana and cached**. All subsequent hair previews reuse the same bald head reconstruction, reducing N head generations (one per hairstyle) to a single generation.
 
 ---
 
 ### 2. Hair Generation — USC-HairSalon + PCA
 
-Rather than generating hair strands from scratch (expensive), 343 strand-level hair models from the **USC-HairSalon** dataset are pre-reduced along **3 PCA axes**. For any user prompt, the system finds the nearest neighbor in PCA space and blends between adjacent models — producing strand-level `.ply` geometry with essentially no GPU cost at inference time.
+Rather than generating hair strands from scratch, 343 strand-level hair models from the **USC-HairSalon** dataset are pre-reduced along **3 PCA axes** (width, length, . For any user prompt, the system finds the nearest neighbor in PCA space and blends between adjacent models — producing strand-level `.ply` geometry with essentially no GPU cost at inference time.
 
 Each hair model encodes root-to-tip connectivity as edge-linked strands. Strands are classified into regions (top / sides / back) by their growth vector, enabling independent scaling per region.
 
@@ -49,9 +47,9 @@ Each hair model encodes root-to-tip connectivity as edge-linked strands. Strands
 
 ### 3. Spatial Alignment — SMERK
 
-FaceLift (Gaussian splats) and the USC-HairSalon PLY files use different axis conventions and scale spaces. **SMERK** bridges this gap by creating an invisible face mesh **"mold"** from MediaPipe facial feature coordinates. The mold acts as a shared coordinate frame: hair strands are scaled, rotated, and positioned to fit the mold, guaranteeing alignment with the Gaussian splat head without manual calibration.
+FaceLift (Gaussian splats) and the USC-HairSalon PLY files use different axis conventions and scale spaces. **SMERK** bridges this gap by creating an invisible face mesh "mold" via facial feature coordinates. The mold acts as a shared coordinate frame: hair strands are scaled, rotated, and positioned to fit the mold, guaranteeing alignment with the Gaussian splat head without manual calibration.
 
-SMERK also handles **baldification** — hair inpainting removes the user's existing hair from the reference image so FaceLift reconstructs a clean bald head suitable for all downstream hairstyles.
+Hair inpainting removes the user's existing hair from the reference image so FaceLift reconstructs a clean bald head suitable for all downstream hairstyles.
 
 ---
 
